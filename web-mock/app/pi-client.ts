@@ -1,18 +1,15 @@
-export const SLOT_IDS = ['A1', 'A2', 'A3', 'B1', 'B2', 'B3'] as const;
+export const SLOT_IDS = ['1', '2', '3', '4', '5', '6'] as const;
 
 export type SlotId = (typeof SLOT_IDS)[number];
 export type SlotState = 'AVAILABLE' | 'OCCUPIED' | 'RESERVED' | 'UNKNOWN';
-export type JobState =
-  | 'IDLE'
-  | 'REQUESTED'
-  | 'VEHICLE_DETECTED'
-  | 'MOVING_TO_VEHICLE'
-  | 'LIFTING'
-  | 'MOVING_TO_SLOT'
-  | 'PARKING'
+export type VehicleState =
+  | 'READY_TO_PARK'
+  | 'PARKING_REQUESTED'
+  | 'PARKING_IN_PROGRESS'
   | 'PARKED'
+  | 'RETRIEVAL_REQUESTED'
   | 'RETRIEVING'
-  | 'RETURNING'
+  | 'RETRIEVED'
   | 'ERROR';
 
 export interface ParkingSlot {
@@ -23,17 +20,18 @@ export interface ParkingSlot {
 
 export interface RobotSnapshot {
   state: string;
-  batteryPct: number;
+  positionNode: string;
   positionPct: number;
+  batteryPct?: number;
 }
 
 export interface JobSnapshot {
   id?: string;
-  state: JobState;
+  kind?: string;
+  state: string;
   vehicleId?: string;
   targetSlot?: SlotId;
-  reasonCode?: string;
-  reason?: string;
+  expectedMinutes?: number;
   message: string;
 }
 
@@ -43,6 +41,26 @@ export interface ParkingSnapshot {
   slots: ParkingSlot[];
   robot: RobotSnapshot;
   job: JobSnapshot;
+  activeJob?: JobSnapshot;
+}
+
+export interface CustomerVehicle {
+  id: string;
+  vehicleNumber: string;
+  state: VehicleState;
+  slotId?: SlotId;
+  expectedMinutes?: number;
+}
+
+export interface ParkingRequestBody {
+  customerId: string;
+  vehicleId: string;
+  expectedMinutes: number;
+}
+
+export interface RetrievalRequestBody {
+  customerId: string;
+  vehicleId: string;
 }
 
 export interface PiGatewayHealth {
@@ -50,57 +68,31 @@ export interface PiGatewayHealth {
   mode: string;
 }
 
-export interface ParkingRequestBody {
-  vehicleId: string;
-  expectedMinutes: number;
-  preference: string;
-}
-
 export class PiGatewayError extends Error {
   constructor(
     message: string,
     readonly status?: number,
     readonly detail?: string,
+    readonly code?: string,
   ) {
     super(message);
     this.name = 'PiGatewayError';
   }
 }
 
-const JOB_STATES: JobState[] = [
-  'IDLE',
-  'REQUESTED',
-  'VEHICLE_DETECTED',
-  'MOVING_TO_VEHICLE',
-  'LIFTING',
-  'MOVING_TO_SLOT',
-  'PARKING',
-  'PARKED',
-  'RETRIEVING',
-  'RETURNING',
-  'ERROR',
-];
-
 export function createInitialSnapshot(): ParkingSnapshot {
   return {
     lotId: 'demo-01',
     updatedAt: '1970-01-01T00:00:00.000Z',
-    slots: SLOT_IDS.map((id) => ({
-      id,
-      state: id === 'A2' ? 'OCCUPIED' : id === 'B2' ? 'RESERVED' : 'AVAILABLE',
-      vehicleId: id === 'A2' ? 'SNAP-88' : undefined,
-    })),
+    slots: SLOT_IDS.map((id) => ({ id, state: 'AVAILABLE' })),
     robot: {
-      state: '입구에서 대기 중',
-      batteryPct: 86,
-      positionPct: 18,
+      state: '입구와 출구 사이 대기 위치',
+      positionNode: 'STANDBY',
+      positionPct: 50,
     },
     job: {
       state: 'IDLE',
-      targetSlot: 'B2',
-      reasonCode: 'AUTO_BALANCED',
-      reason: '입구와 출구 동선을 균형 있게 고려했어요.',
-      message: '주차 요청을 기다리고 있어요.',
+      message: '다음 고객의 요청을 기다리고 있어요.',
     },
   };
 }
@@ -116,9 +108,23 @@ function asNumber(value: unknown, fallback: number, min: number, max: number) {
   return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
 }
 
+function asOptionalNumber(value: unknown) {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function asSlotId(value: unknown, fallback?: SlotId): SlotId | undefined {
   const candidate = String(value ?? '').toUpperCase();
-  return SLOT_IDS.includes(candidate as SlotId) ? (candidate as SlotId) : fallback;
+  if (SLOT_IDS.includes(candidate as SlotId)) return candidate as SlotId;
+  const legacy: Record<string, SlotId> = {
+    A1: '1',
+    A2: '2',
+    A3: '3',
+    B1: '4',
+    B2: '5',
+    B3: '6',
+  };
+  return legacy[candidate] ?? fallback;
 }
 
 function asSlotState(value: unknown, fallback: SlotState): SlotState {
@@ -130,9 +136,23 @@ function asSlotState(value: unknown, fallback: SlotState): SlotState {
     : fallback;
 }
 
-function asJobState(value: unknown, fallback: JobState): JobState {
-  const candidate = String(value ?? '').toUpperCase();
-  return JOB_STATES.includes(candidate as JobState) ? (candidate as JobState) : fallback;
+function normalizeJob(value: unknown, fallback: JobSnapshot): JobSnapshot {
+  const job = asRecord(value);
+  return {
+    id: job.id ? String(job.id) : fallback.id,
+    kind: job.kind ? String(job.kind).toUpperCase() : fallback.kind,
+    state: String(job.state ?? job.status ?? fallback.state).toUpperCase(),
+    vehicleId: job.vehicleId
+      ? String(job.vehicleId)
+      : job.vehicle_id
+        ? String(job.vehicle_id)
+        : fallback.vehicleId,
+    targetSlot: asSlotId(job.targetSlot ?? job.target_slot, fallback.targetSlot),
+    expectedMinutes: asOptionalNumber(
+      job.expectedMinutes ?? job.expected_minutes ?? fallback.expectedMinutes,
+    ),
+    message: String(job.message ?? fallback.message),
+  };
 }
 
 export function normalizeSnapshot(
@@ -142,23 +162,31 @@ export function normalizeSnapshot(
   const envelope = asRecord(payload);
   const data = asRecord(envelope.snapshot ?? envelope.data ?? envelope);
   const robot = asRecord(data.robot);
-  const job = asRecord(data.job ?? data.activeJob);
   const rawSlots = Array.isArray(data.slots) ? data.slots : [];
   const incomingSlots = new Map<SlotId, Record<string, unknown>>();
 
   rawSlots.forEach((entry) => {
     const slot = asRecord(entry);
-    const id = asSlotId(slot.id ?? slot.slotId);
+    const id = asSlotId(slot.id ?? slot.slotId ?? slot.slot_id);
     if (id) incomingSlots.set(id, slot);
   });
 
+  const job = normalizeJob(data.job ?? data.activeJob, fallback.job);
+  const activeJobValue = data.activeJob;
+  const activeJob = activeJobValue && Object.keys(asRecord(activeJobValue)).length > 0
+    ? normalizeJob(activeJobValue, job)
+    : job.state !== 'IDLE'
+      ? job
+      : undefined;
+
   return {
-    lotId: String(data.lotId ?? data.parkingLotId ?? fallback.lotId),
-    updatedAt: String(data.updatedAt ?? data.timestamp ?? new Date().toISOString()),
+    lotId: String(data.lotId ?? data.parkingLotId ?? data.lot_id ?? fallback.lotId),
+    updatedAt: String(
+      data.updatedAt ?? data.updated_at ?? data.timestamp ?? new Date().toISOString(),
+    ),
     slots: fallback.slots.map((current) => {
       const incoming = incomingSlots.get(current.id);
       if (!incoming) return current;
-
       const vehicleId = incoming.vehicleId ?? incoming.vehicle_id;
       return {
         id: current.id,
@@ -168,37 +196,76 @@ export function normalizeSnapshot(
     }),
     robot: {
       state: String(robot.state ?? robot.status ?? fallback.robot.state),
-      batteryPct: asNumber(
-        robot.batteryPct ?? robot.battery ?? robot.battery_pct,
-        fallback.robot.batteryPct,
+      positionNode: String(
+        robot.positionNode ?? robot.position_node ?? fallback.robot.positionNode,
+      ),
+      positionPct: asNumber(
+        robot.positionPct ?? robot.position_pct ?? robot.position,
+        fallback.robot.positionPct,
         0,
         100,
       ),
-      positionPct: asNumber(
-        robot.positionPct ?? robot.position ?? robot.position_pct,
-        fallback.robot.positionPct,
-        4,
-        96,
-      ),
+      batteryPct: robot.batteryPct === undefined && robot.battery === undefined
+        ? fallback.robot.batteryPct
+        : asNumber(robot.batteryPct ?? robot.battery, 0, 0, 100),
     },
-    job: {
-      id: job.id ? String(job.id) : fallback.job.id,
-      state: asJobState(job.state ?? job.status, fallback.job.state),
-      vehicleId: job.vehicleId
-        ? String(job.vehicleId)
-        : job.vehicle_id
-          ? String(job.vehicle_id)
-          : fallback.job.vehicleId,
-      targetSlot: asSlotId(job.targetSlot ?? job.target_slot, fallback.job.targetSlot),
-      reasonCode: job.reasonCode
-        ? String(job.reasonCode)
-        : job.reason_code
-          ? String(job.reason_code)
-          : fallback.job.reasonCode,
-      reason: job.reason ? String(job.reason) : fallback.job.reason,
-      message: String(job.message ?? data.message ?? fallback.job.message),
-    },
+    job,
+    activeJob,
   };
+}
+
+function asVehicleState(value: unknown): VehicleState {
+  const candidate = String(value ?? 'READY_TO_PARK').toUpperCase();
+  const aliases: Record<string, VehicleState> = {
+    READY: 'READY_TO_PARK',
+    REGISTERED: 'READY_TO_PARK',
+    PARKING: 'PARKING_IN_PROGRESS',
+    EXITED: 'RETRIEVED',
+  };
+  const normalized = aliases[candidate] ?? candidate;
+  return [
+    'READY_TO_PARK',
+    'PARKING_REQUESTED',
+    'PARKING_IN_PROGRESS',
+    'PARKED',
+    'RETRIEVAL_REQUESTED',
+    'RETRIEVING',
+    'RETRIEVED',
+    'ERROR',
+  ].includes(normalized)
+    ? (normalized as VehicleState)
+    : 'ERROR';
+}
+
+export function normalizeVehicles(payload: unknown): CustomerVehicle[] {
+  const root = asRecord(payload);
+  const raw = Array.isArray(payload)
+    ? payload
+    : Array.isArray(root.vehicles)
+      ? root.vehicles
+      : Array.isArray(root.data)
+        ? root.data
+        : root.vehicle
+          ? [root.vehicle]
+          : [];
+
+  return raw.flatMap((entry) => {
+    const vehicle = asRecord(entry);
+    const id = String(vehicle.id ?? vehicle.vehicleId ?? vehicle.vehicle_id ?? '').trim();
+    const vehicleNumber = String(
+      vehicle.vehicleNumber ?? vehicle.vehicle_number ?? vehicle.number ?? '',
+    ).trim();
+    if (!id || !vehicleNumber) return [];
+    return [{
+      id,
+      vehicleNumber,
+      state: asVehicleState(vehicle.state ?? vehicle.status),
+      slotId: asSlotId(vehicle.slotId ?? vehicle.slot_id ?? vehicle.targetSlot),
+      expectedMinutes: asOptionalNumber(
+        vehicle.expectedMinutes ?? vehicle.expected_minutes,
+      ),
+    }];
+  });
 }
 
 function endpoint(baseUrl: string, path: string) {
@@ -216,32 +283,28 @@ async function requestJson<T = unknown>(url: string, init?: RequestInit): Promis
   }
 
   try {
-    const response = await fetch(url, {
-      ...init,
-      headers,
-      signal: controller.signal,
-    });
-
+    const response = await fetch(url, { ...init, headers, signal: controller.signal });
     if (!response.ok) {
       const contentType = response.headers.get('content-type') ?? '';
       let detail: string | undefined;
+      let code: string | undefined;
       if (contentType.includes('application/json')) {
         const body = asRecord(await response.json().catch(() => undefined));
-        if (body.detail !== undefined) detail = String(body.detail);
+        const detailRecord = asRecord(body.detail);
+        detail = String(detailRecord.message ?? body.detail ?? body.message ?? '').trim() || undefined;
+        code = String(detailRecord.code ?? body.code ?? '').trim() || undefined;
       }
-      const suffix = detail ? `: ${detail}` : '';
       throw new PiGatewayError(
-        `Pi API가 ${response.status} 상태를 반환했습니다${suffix}`,
+        detail ?? `Pi API가 ${response.status} 상태를 반환했습니다.`,
         response.status,
         detail,
+        code,
       );
     }
-
     const contentType = response.headers.get('content-type') ?? '';
     if (!contentType.includes('application/json')) {
-      throw new Error('Pi API 응답이 JSON 형식이 아닙니다.');
+      throw new PiGatewayError('Pi API 응답이 JSON 형식이 아닙니다.');
     }
-
     return (await response.json()) as T;
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
@@ -258,40 +321,46 @@ export function fetchPiHealth(baseUrl: string) {
 }
 
 export function fetchPiSnapshot(baseUrl: string, lotId = 'demo-01') {
-  return requestJson(endpoint(baseUrl, `/v1/parking-lots/${encodeURIComponent(lotId)}/snapshot`));
+  return requestJson(
+    endpoint(baseUrl, `/v1/parking-lots/${encodeURIComponent(lotId)}/snapshot`),
+  );
 }
 
-export function postParkingRequest(
+export async function fetchCustomerVehicles(baseUrl: string, customerId: string) {
+  const payload = await requestJson(
+    endpoint(baseUrl, `/v1/customers/${encodeURIComponent(customerId)}/vehicles`),
+  );
+  return normalizeVehicles(payload);
+}
+
+export async function createCustomerVehicle(
   baseUrl: string,
-  body: ParkingRequestBody,
+  customerId: string,
+  vehicleNumber: string,
 ) {
+  const payload = await requestJson(
+    endpoint(baseUrl, `/v1/customers/${encodeURIComponent(customerId)}/vehicles`),
+    { method: 'POST', body: JSON.stringify({ vehicleNumber }) },
+  );
+  return normalizeVehicles(payload)[0];
+}
+
+export function postParkingRequest(baseUrl: string, body: ParkingRequestBody) {
   return requestJson(endpoint(baseUrl, '/v1/parking-requests'), {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
-export function confirmParkingRequest(baseUrl: string, requestId: string) {
-  return requestJson(
-    endpoint(baseUrl, `/v1/parking-requests/${encodeURIComponent(requestId)}/confirm`),
-    { method: 'POST' },
-  );
-}
-
-export function fetchPiJob(baseUrl: string, jobId: string) {
-  return requestJson(endpoint(baseUrl, `/v1/jobs/${encodeURIComponent(jobId)}`));
-}
-
-export function postRetrievalRequest(baseUrl: string, vehicleId: string) {
+export function postRetrievalRequest(baseUrl: string, body: RetrievalRequestBody) {
   return requestJson(endpoint(baseUrl, '/v1/retrieval-requests'), {
     method: 'POST',
-    body: JSON.stringify({ vehicleId }),
+    body: JSON.stringify(body),
   });
 }
 
 export function resolveWebSocketUrl(explicitUrl: string, apiBaseUrl: string) {
   if (explicitUrl.trim()) return explicitUrl.trim();
-
   try {
     const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
     const base = apiBaseUrl.trim() || origin;

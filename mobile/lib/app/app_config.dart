@@ -1,5 +1,9 @@
 class AppConfig {
-  AppConfig({required this.gatewayBaseUri, required this.lotId});
+  AppConfig({
+    required this.gatewayBaseUri,
+    required this.lotId,
+    required this.customerId,
+  });
 
   factory AppConfig.fromEnvironment() {
     const rawBaseUrl = String.fromEnvironment(
@@ -9,6 +13,13 @@ class AppConfig {
     const rawLotId = String.fromEnvironment(
       'PI_LOT_ID',
       defaultValue: 'demo-01',
+    );
+    const rawCustomerId = String.fromEnvironment(
+      'PI_CUSTOMER_ID',
+      defaultValue: String.fromEnvironment(
+        'SNAP_CUSTOMER_ID',
+        defaultValue: 'demo-customer',
+      ),
     );
 
     final baseUri = Uri.tryParse(rawBaseUrl.trim());
@@ -27,9 +38,23 @@ class AppConfig {
       throw ArgumentError.value(rawLotId, 'PI_LOT_ID', '주차장 ID가 필요합니다.');
     }
 
-    return AppConfig(gatewayBaseUri: baseUri, lotId: lotId);
+    final customerId = rawCustomerId.trim();
+    if (customerId.isEmpty) {
+      throw ArgumentError.value(
+        rawCustomerId,
+        'PI_CUSTOMER_ID',
+        '고객 ID가 필요합니다.',
+      );
+    }
+
+    return AppConfig(
+      gatewayBaseUri: baseUri,
+      lotId: lotId,
+      customerId: customerId,
+    );
   }
 
   final Uri gatewayBaseUri;
   final String lotId;
+  final String customerId;
 }

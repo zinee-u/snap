@@ -175,7 +175,7 @@ tools/qemu/verify.sh
 tools/qemu/verify.sh --write-flow
 ```
 
-`--write-flow`는 Gateway가 `pi-simulator` 모드라고 응답할 때만 주차 요청, 확정, 작업 조회, `PARKED`, 출차 요청, `IDLE`을 실행한다.
+`--write-flow`는 Gateway가 `pi-simulator` 계열 모드라고 응답할 때만 고객 차량 2대 등록, 1시간·4시간 이상 연속 입차, 첫 차량 독립 출차, 두 번째 차량 상태 유지, 정리 출차와 최종 `activeJob=null`을 실행한다.
 
 개별 확인 주소:
 
@@ -223,7 +223,7 @@ NEXT_PUBLIC_PI_WS_URL=ws://<PI-IP>:8101/v1/events
 1. 연결 상태가 `LIVE PI`로 바뀌는지 확인한다.
 2. 차량 ID와 선호 조건을 입력하고 주차를 요청한다.
 3. 이벤트 스트림과 주차면 상태가 실시간으로 변하는지 확인한다.
-4. `PARKED`에서 해당 주차면이 `OCCUPIED`가 되는지 확인한다.
+4. 첫 차량이 `PARKED`인 동안 두 번째 차량 입차가 가능하고 두 슬롯이 각각 `OCCUPIED`가 되는지 확인한다.
 5. 출차 요청 후 `IDLE`과 `AVAILABLE`로 돌아오는지 확인한다.
 
 ### 8. VM 종료
@@ -355,4 +355,5 @@ tools/qemu/provision.sh
 
 - [Raspberry Pi Gateway](../pi-bridge/README.md)
 - [클라이언트–Gateway 검증](09-client-gateway-verification.md)
+- [프로젝트 구성](../README.md#구성)
 - [Web Mock](../web-mock/README.md)

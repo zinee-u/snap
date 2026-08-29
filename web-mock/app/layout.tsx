@@ -11,6 +11,20 @@ export const metadata: Metadata = {
     description: '설치 없이 주차·출차 흐름과 Raspberry Pi 연결을 보여주는 반응형 Web Mock',
     type: 'website',
     locale: 'ko_KR',
+    images: [
+      {
+        url: '/snap-social-preview.png',
+        width: 1200,
+        height: 630,
+        alt: 'S.N.A.P Smart Valet 차량별 원터치 입차·출차',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'S.N.A.P Smart Valet Demo',
+    description: '차량별 예상 주차시간을 반영하는 고객용 원터치 입차·출차 데모',
+    images: ['/snap-social-preview.png'],
   },
 };
 

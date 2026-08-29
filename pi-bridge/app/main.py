@@ -2,27 +2,81 @@ from __future__ import annotations
 
 import asyncio
 import os
+from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .controller import ControllerError, ParkingController
+from .controller import (
+    ControllerError,
+    InvalidParkingDuration,
+    JobNotFound,
+    ParkingController,
+    VehicleNotFound,
+)
+from .runtime import GatewayRuntime
 
 
 class ParkingRequest(BaseModel):
-    vehicleId: str = Field(min_length=1, max_length=32)
-    expectedMinutes: int = Field(default=120, ge=5, le=1440)
-    preference: str = Field(default="AUTO", pattern="^(AUTO|NEAR_EXIT|SHORTEST_PATH)$")
+    model_config = ConfigDict(extra="forbid")
+
+    customerId: str | None = Field(default=None, min_length=1, max_length=64)
+    vehicleId: str | None = Field(default=None, min_length=1, max_length=32)
+    vehicleNumber: str | None = Field(default=None, min_length=1, max_length=32)
+    expectedMinutes: Literal[60, 120, 180, 240] = 120
+
+    @model_validator(mode="before")
+    @classmethod
+    def ignore_legacy_preference(cls, value: object) -> object:
+        if isinstance(value, dict) and "preference" in value:
+            without_preference = dict(value)
+            without_preference.pop("preference")
+            return without_preference
+        return value
+
+    @model_validator(mode="after")
+    def exactly_one_vehicle_identifier(self) -> ParkingRequest:
+        if (self.vehicleId is None) == (self.vehicleNumber is None):
+            raise ValueError("vehicleId와 vehicleNumber 중 하나만 보내 주세요.")
+        return self
 
 
 class RetrievalRequest(BaseModel):
-    vehicleId: str = Field(min_length=1, max_length=32)
+    model_config = ConfigDict(extra="forbid")
+
+    customerId: str | None = Field(default=None, min_length=1, max_length=64)
+    vehicleId: str | None = Field(default=None, min_length=1, max_length=32)
+    vehicleNumber: str | None = Field(default=None, min_length=1, max_length=32)
+
+    @model_validator(mode="after")
+    def exactly_one_vehicle_identifier(self) -> RetrievalRequest:
+        if (self.vehicleId is None) == (self.vehicleNumber is None):
+            raise ValueError("vehicleId와 vehicleNumber 중 하나만 보내 주세요.")
+        return self
 
 
-step_delay = float(os.getenv("SNAP_STEP_DELAY_SECONDS", "1.05"))
-controller = ParkingController(step_delay_seconds=step_delay)
-app = FastAPI(title="S.N.A.P Pi Gateway", version="0.1.0")
+class VehicleRegistrationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    vehicleNumber: str = Field(min_length=1, max_length=32)
+
+
+gateway_runtime = GatewayRuntime.from_environment()
+controller: ParkingController = gateway_runtime.controller
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    await gateway_runtime.start()
+    try:
+        yield
+    finally:
+        await gateway_runtime.close()
+
+
+app = FastAPI(title="S.N.A.P Pi Gateway", version="0.3.0", lifespan=lifespan)
 
 default_allowed_origins = "http://localhost:3101,http://127.0.0.1:3101"
 allowed_origins = [
@@ -40,13 +94,37 @@ app.add_middleware(
 
 
 def api_error(error: ControllerError) -> HTTPException:
-    status = 404 if "찾을 수" in str(error) else 409
+    if isinstance(error, (VehicleNotFound, JobNotFound)):
+        status = 404
+    elif isinstance(error, InvalidParkingDuration):
+        status = 422
+    else:
+        status = 409
     return HTTPException(status_code=status, detail=str(error))
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "mode": "pi-simulator"}
+async def health() -> dict[str, object]:
+    return gateway_runtime.health()
+
+
+@app.get("/v1/customers/{customer_id}/vehicles")
+async def customer_vehicles(customer_id: str) -> dict[str, object]:
+    try:
+        return controller.list_vehicles(customer_id)
+    except ControllerError as error:
+        raise api_error(error) from error
+
+
+@app.post("/v1/customers/{customer_id}/vehicles", status_code=201)
+async def register_customer_vehicle(
+    customer_id: str,
+    body: VehicleRegistrationRequest,
+) -> dict[str, object]:
+    try:
+        return {"vehicle": controller.register_vehicle(customer_id, body.vehicleNumber)}
+    except ControllerError as error:
+        raise api_error(error) from error
 
 
 @app.get("/v1/parking-lots/{lot_id}/snapshot")
@@ -61,8 +139,9 @@ async def create_parking_request(body: ParkingRequest) -> dict[str, object]:
     try:
         return await controller.request_parking(
             vehicle_id=body.vehicleId,
+            vehicle_number=body.vehicleNumber,
+            customer_id=body.customerId,
             expected_minutes=body.expectedMinutes,
-            preference=body.preference,
         )
     except ControllerError as error:
         raise api_error(error) from error
@@ -87,7 +166,11 @@ async def get_job(job_id: str) -> dict[str, object]:
 @app.post("/v1/retrieval-requests")
 async def create_retrieval_request(body: RetrievalRequest) -> dict[str, object]:
     try:
-        return await controller.request_retrieval(body.vehicleId)
+        return await controller.request_retrieval(
+            vehicle_id=body.vehicleId,
+            vehicle_number=body.vehicleNumber,
+            customer_id=body.customerId,
+        )
     except ControllerError as error:
         raise api_error(error) from error
 

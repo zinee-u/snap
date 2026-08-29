@@ -13,6 +13,7 @@ class PiGatewaySession extends ChangeNotifier {
   PiGatewaySession({
     required this.client,
     this.lotId = 'demo-01',
+    this.customerId = 'demo-customer',
     this.pingInterval = const Duration(seconds: 15),
     List<Duration>? reconnectDelays,
   }) : reconnectDelays = reconnectDelays == null || reconnectDelays.isEmpty
@@ -27,11 +28,13 @@ class PiGatewaySession extends ChangeNotifier {
 
   final PiGatewayClient client;
   final String lotId;
+  final String customerId;
   final Duration pingInterval;
   final List<Duration> reconnectDelays;
 
   GatewayConnectionState _connectionState = GatewayConnectionState.disconnected;
   ParkingSnapshot? _snapshot;
+  List<CustomerVehicle> _vehicles = const <CustomerVehicle>[];
   String? _lastError;
   String? _lastEventType;
   bool _isSubmitting = false;
@@ -39,12 +42,15 @@ class PiGatewaySession extends ChangeNotifier {
   bool _started = false;
   int _generation = 0;
   int _reconnectAttempt = 0;
+  int _vehicleRequestSequence = 0;
+  int _acceptedVehicleRequest = 0;
   WebSocket? _socket;
   StreamSubscription<dynamic>? _socketSubscription;
   Timer? _retryTimer;
 
   GatewayConnectionState get connectionState => _connectionState;
   ParkingSnapshot? get snapshot => _snapshot;
+  List<CustomerVehicle> get vehicles => _vehicles;
   String? get lastError => _lastError;
   String? get lastEventType => _lastEventType;
   bool get isSubmitting => _isSubmitting;
@@ -76,11 +82,12 @@ class PiGatewaySession extends ChangeNotifier {
     }
     final generation = _generation;
     try {
-      final latest = await client.fetchSnapshot(lotId: lotId);
+      final latest = await _fetchGatewayState();
       if (_disposed || generation != _generation) {
         return;
       }
-      _acceptSnapshot(latest);
+      _acceptSnapshot(latest.snapshot);
+      _acceptVehicles(latest.vehicles, latest.vehicleRequest);
       _lastError = null;
       _notify();
     } catch (error) {
@@ -108,17 +115,17 @@ class PiGatewaySession extends ChangeNotifier {
   Future<GatewayCommandResult> requestParking({
     required String vehicleId,
     required int expectedMinutes,
-    required String preference,
   }) {
     return _runExclusive(() async {
       final result = await client.requestParking(
+        customerId: customerId,
         vehicleId: vehicleId,
         expectedMinutes: expectedMinutes,
-        preference: preference,
         lotId: lotId,
         fallback: _snapshot,
       );
       _applyCommandSnapshot(result);
+      await _refreshVehiclesBestEffort();
       return result;
     });
   }
@@ -126,12 +133,26 @@ class PiGatewaySession extends ChangeNotifier {
   Future<GatewayCommandResult> requestRetrieval({required String vehicleId}) {
     return _runExclusive(() async {
       final result = await client.requestRetrieval(
+        customerId: customerId,
         vehicleId: vehicleId,
         lotId: lotId,
         fallback: _snapshot,
       );
       _applyCommandSnapshot(result);
+      await _refreshVehiclesBestEffort();
       return result;
+    });
+  }
+
+  Future<CustomerVehicle> registerVehicle({required String vehicleNumber}) {
+    return _runExclusive(() async {
+      final vehicle = await client.registerVehicle(
+        customerId: customerId,
+        vehicleNumber: vehicleNumber,
+      );
+      _upsertVehicle(vehicle);
+      await _refreshVehiclesBestEffort();
+      return vehicle;
     });
   }
 
@@ -170,12 +191,14 @@ class PiGatewaySession extends ChangeNotifier {
     _notify();
 
     try {
-      // Every initial connection and reconnect resynchronizes from REST first.
-      final latest = await client.fetchSnapshot(lotId: lotId);
+      // Every initial connection and reconnect resynchronizes both public lot
+      // state and this customer's private vehicle list from REST first.
+      final latest = await _fetchGatewayState();
       if (!_isCurrent(generation)) {
         return;
       }
-      _acceptSnapshot(latest);
+      _acceptSnapshot(latest.snapshot);
+      _acceptVehicles(latest.vehicles, latest.vehicleRequest);
       _lastError = null;
       _notify();
 
@@ -228,6 +251,7 @@ class PiGatewaySession extends ChangeNotifier {
       _lastEventType = event.type;
       _lastError = null;
       _notify();
+      unawaited(_refreshVehiclesAfterEvent(generation));
     } catch (error) {
       _lastError = '실시간 이벤트 해석 실패: $error';
       _notify();
@@ -281,6 +305,83 @@ class PiGatewaySession extends ChangeNotifier {
       _acceptSnapshot(result.snapshot!);
     }
     _lastError = null;
+    _notify();
+  }
+
+  Future<({
+    ParkingSnapshot snapshot,
+    List<CustomerVehicle> vehicles,
+    int vehicleRequest,
+  })> _fetchGatewayState() async {
+    final vehicleRequest = ++_vehicleRequestSequence;
+    final values = await Future.wait<Object>(<Future<Object>>[
+      client.fetchSnapshot(lotId: lotId),
+      client.fetchVehicles(customerId: customerId),
+    ]);
+    return (
+      snapshot: values[0] as ParkingSnapshot,
+      vehicles: values[1] as List<CustomerVehicle>,
+      vehicleRequest: vehicleRequest,
+    );
+  }
+
+  Future<void> _refreshVehiclesAfterEvent(int generation) async {
+    final vehicleRequest = ++_vehicleRequestSequence;
+    try {
+      final latest = await client.fetchVehicles(customerId: customerId);
+      if (!_isCurrent(generation)) {
+        return;
+      }
+      _acceptVehicles(latest, vehicleRequest);
+      _lastError = null;
+      _notify();
+    } catch (error) {
+      if (!_isCurrent(generation)) {
+        return;
+      }
+      _lastError = '차량 목록 갱신 실패: $error';
+      _notify();
+    }
+  }
+
+  Future<void> _refreshVehiclesBestEffort() async {
+    final vehicleRequest = ++_vehicleRequestSequence;
+    try {
+      final latest = await client.fetchVehicles(customerId: customerId);
+      if (_disposed) {
+        return;
+      }
+      _acceptVehicles(latest, vehicleRequest);
+      _lastError = null;
+      _notify();
+    } catch (error) {
+      if (_disposed) {
+        return;
+      }
+      _lastError = '차량 목록 갱신 실패: $error';
+      _notify();
+    }
+  }
+
+  void _acceptVehicles(List<CustomerVehicle> incoming, int request) {
+    if (request < _acceptedVehicleRequest) {
+      return;
+    }
+    _acceptedVehicleRequest = request;
+    _vehicles = List<CustomerVehicle>.unmodifiable(incoming);
+  }
+
+  void _upsertVehicle(CustomerVehicle vehicle) {
+    final index = _vehicles.indexWhere((existing) => existing.id == vehicle.id);
+    if (index < 0) {
+      _vehicles = List<CustomerVehicle>.unmodifiable(
+        <CustomerVehicle>[..._vehicles, vehicle],
+      );
+    } else {
+      final updated = List<CustomerVehicle>.of(_vehicles);
+      updated[index] = vehicle;
+      _vehicles = List<CustomerVehicle>.unmodifiable(updated);
+    }
     _notify();
   }
 

@@ -15,7 +15,7 @@ function usage() {
   SNAP_PI_WS_URL         기본값: API 주소에서 /v1/events로 자동 계산
   SNAP_PI_TIMEOUT_MS     기본값: ${DEFAULT_TIMEOUT_MS}
 
-쓰기 검증(주차 -> 출차)은 /health의 mode가 pi-simulator일 때만 실행됩니다.`);
+쓰기 검증(차량 등록 -> 2대 입차 -> 독립 출차)은 /health의 mode가 pi-simulator 계열일 때만 실행됩니다.`);
 }
 
 function parseArgs(argv) {
@@ -117,14 +117,38 @@ function validateSnapshot(value, label) {
 
   const robot = asRecord(snapshot.robot, `${label}.robot`);
   requireString(robot, 'state', `${label}.robot`);
-  if (typeof robot.batteryPct !== 'number' || !Number.isFinite(robot.batteryPct)) {
-    throw new Error(`${label}.robot.batteryPct가 숫자가 아닙니다.`);
-  }
 
   const job = asRecord(snapshot.job, `${label}.job`);
   requireString(job, 'state', `${label}.job`);
   requireString(job, 'message', `${label}.job`);
+  if (!('activeJob' in snapshot)) {
+    throw new Error(`${label}.activeJob 필드가 없습니다.`);
+  }
+  if (snapshot.activeJob !== null) {
+    asRecord(snapshot.activeJob, `${label}.activeJob`);
+  }
   return snapshot;
+}
+
+function validateVehicle(value, label) {
+  const vehicle = asRecord(value, label);
+  const vehicleId = requireString(vehicle, 'vehicleId', label);
+  const vehicleNumber = requireString(vehicle, 'vehicleNumber', label);
+  const state = requireString(vehicle, 'state', label);
+  return { ...vehicle, vehicleId, vehicleNumber, state };
+}
+
+function validateVehicleList(value, customerId, label) {
+  const envelope = asRecord(value, label);
+  if (envelope.customerId !== customerId) {
+    throw new Error(`${label}.customerId가 요청 값과 다릅니다.`);
+  }
+  if (!Array.isArray(envelope.vehicles)) {
+    throw new Error(`${label}.vehicles가 배열이 아닙니다.`);
+  }
+  return envelope.vehicles.map((vehicle, index) =>
+    validateVehicle(vehicle, `${label}.vehicles[${index}]`),
+  );
 }
 
 async function requestJson(url, init, timeoutMs) {
@@ -310,7 +334,7 @@ async function run() {
       console.log('SKIP  --read-only: 주차·출차 쓰기 검증을 실행하지 않습니다.');
       return;
     }
-    if (mode !== 'pi-simulator') {
+    if (!mode.startsWith('pi-simulator')) {
       console.log(`SKIP  mode=${mode}: 실제 Gateway에는 주차·출차 명령을 보내지 않습니다.`);
       return;
     }
@@ -320,91 +344,262 @@ async function run() {
       );
     }
 
-    const vehicleId = `VERIFY-${Date.now().toString(36).toUpperCase()}`;
-    const parkingResponse = asRecord(
+    const verificationKey = Date.now().toString(36).toUpperCase();
+    const customerId = `verify-customer-${verificationKey.toLowerCase()}`;
+    const vehicleNumbers = [`검증${verificationKey.slice(-4)}01`, `검증${verificationKey.slice(-4)}02`];
+    const initialLotWasEmpty = initialSnapshot.slots.every(
+      (slot) => slot.state === 'AVAILABLE' && !slot.vehicleId,
+    );
+    const expectedSlotIds = ['1', '2', '3', '4', '5', '6'];
+    const actualSlotIds = initialSnapshot.slots.map((slot) => String(slot.id)).sort();
+    if (JSON.stringify(actualSlotIds) !== JSON.stringify(expectedSlotIds)) {
+      throw new Error(`주차면 ID가 1~6이 아닙니다: ${actualSlotIds.join(', ')}`);
+    }
+    pass('숫자 주차면 1~6 계약');
+
+    const registeredVehicles = [];
+    for (const vehicleNumber of vehicleNumbers) {
+      const registration = asRecord(
+        await requestJson(
+          apiUrl(
+            baseUrl,
+            `/v1/customers/${encodeURIComponent(customerId)}/vehicles`,
+          ),
+          { method: 'POST', body: JSON.stringify({ vehicleNumber }) },
+          options.timeoutMs,
+        ),
+        '차량 등록 응답',
+      );
+      registeredVehicles.push(
+        validateVehicle(registration.vehicle, `차량 등록 응답(${vehicleNumber}).vehicle`),
+      );
+    }
+    if (new Set(registeredVehicles.map((vehicle) => vehicle.vehicleId)).size !== 2) {
+      throw new Error('서로 다른 두 차량이 같은 vehicleId로 등록됐습니다.');
+    }
+    pass('고객 차량 2대 등록');
+
+    const listedBeforeParking = validateVehicleList(
+      await requestJson(
+        apiUrl(
+          baseUrl,
+          `/v1/customers/${encodeURIComponent(customerId)}/vehicles`,
+        ),
+        undefined,
+        options.timeoutMs,
+      ),
+      customerId,
+      '고객 차량 목록',
+    );
+    if (listedBeforeParking.length !== 2) {
+      throw new Error(`등록 직후 차량 수가 2대가 아닙니다 (${listedBeforeParking.length}).`);
+    }
+    pass('GET 고객 차량 목록');
+
+    const firstVehicle = registeredVehicles[0];
+    const firstParkingResponse = asRecord(
       await requestJson(
         apiUrl(baseUrl, '/v1/parking-requests'),
         {
           method: 'POST',
           body: JSON.stringify({
-            vehicleId,
-            expectedMinutes: 30,
-            preference: 'SHORTEST_PATH',
+            customerId,
+            vehicleId: firstVehicle.vehicleId,
+            expectedMinutes: 60,
           }),
         },
         options.timeoutMs,
       ),
-      '주차 요청 응답',
+      '첫 번째 주차 요청 응답',
     );
-    const parkingRequestId = requireString(parkingResponse, 'requestId', '주차 요청 응답');
-    pass(`POST parking request (${parkingRequestId})`);
-
-    const confirmation = asRecord(
-      await requestJson(
-        apiUrl(
-          baseUrl,
-          `/v1/parking-requests/${encodeURIComponent(parkingRequestId)}/confirm`,
-        ),
-        { method: 'POST' },
-        options.timeoutMs,
-      ),
-      '주차 확정 응답',
+    const firstParkingRequestId = requireString(
+      firstParkingResponse,
+      'requestId',
+      '첫 번째 주차 요청 응답',
     );
-    if (confirmation.confirmed !== true) throw new Error('주차 확정 응답의 confirmed가 true가 아닙니다.');
-    pass('POST parking confirmation');
+    pass(`POST 1시간 주차 요청 (${firstParkingRequestId})`);
 
-    const job = asRecord(
+    const firstJob = asRecord(
       await requestJson(
-        apiUrl(baseUrl, `/v1/jobs/${encodeURIComponent(parkingRequestId)}`),
+        apiUrl(baseUrl, `/v1/jobs/${encodeURIComponent(firstParkingRequestId)}`),
         undefined,
         options.timeoutMs,
       ),
-      '작업 조회 응답',
+      '첫 번째 작업 조회 응답',
     );
-    if (job.id !== parkingRequestId) throw new Error('작업 조회 응답의 id가 요청 id와 다릅니다.');
-    requireString(job, 'state', '작업 조회 응답');
+    if (firstJob.id !== firstParkingRequestId) {
+      throw new Error('첫 번째 작업 조회 응답의 id가 요청 id와 다릅니다.');
+    }
+    requireString(firstJob, 'state', '첫 번째 작업 조회 응답');
     pass('GET job');
 
-    const parkedEvent = asRecord(
+    const firstParkedEvent = asRecord(
       await events.waitFor((event) => {
         const snapshot = event?.snapshot;
         return (
-          snapshot?.job?.id === parkingRequestId &&
-          snapshot?.job?.state === 'PARKED' &&
+          event?.type === 'ROBOT_IDLE' &&
+          snapshot?.activeJob === null &&
           snapshot?.slots?.some(
-            (slot) => slot?.vehicleId === vehicleId && slot?.state === 'OCCUPIED',
+            (slot) =>
+              slot?.vehicleId === firstVehicle.vehicleId && slot?.state === 'OCCUPIED',
           )
         );
-      }, 'PARKED WebSocket 이벤트'),
-      'PARKED 이벤트',
+      }, '첫 차량 PARKED 및 대기 복귀 이벤트'),
+      '첫 차량 PARKED 이벤트',
     );
-    validateSnapshot(parkedEvent.snapshot, 'PARKED snapshot');
-    pass('WebSocket 주차 완료 상태 전이');
+    const firstParkedSnapshot = validateSnapshot(
+      firstParkedEvent.snapshot,
+      '첫 차량 PARKED snapshot',
+    );
+    const firstSlot = firstParkedSnapshot.slots.find(
+      (slot) => slot.vehicleId === firstVehicle.vehicleId,
+    )?.id;
+    if (!firstSlot) throw new Error('첫 차량의 배정 주차면을 찾지 못했습니다.');
+    if (initialLotWasEmpty && firstSlot !== '1') {
+      throw new Error(`빈 주차장의 1시간 차량이 1번에 배정되지 않았습니다 (${firstSlot}).`);
+    }
+    pass(`첫 차량 주차 완료 및 로봇 대기 복귀 (slot=${firstSlot})`);
+
+    const secondVehicle = registeredVehicles[1];
+    const secondParkingResponse = asRecord(
+      await requestJson(
+        apiUrl(baseUrl, '/v1/parking-requests'),
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            customerId,
+            vehicleId: secondVehicle.vehicleId,
+            expectedMinutes: 240,
+          }),
+        },
+        options.timeoutMs,
+      ),
+      '두 번째 주차 요청 응답',
+    );
+    const secondParkingRequestId = requireString(
+      secondParkingResponse,
+      'requestId',
+      '두 번째 주차 요청 응답',
+    );
+    pass(`POST 4시간 이상 주차 요청 (${secondParkingRequestId})`);
+
+    const secondParkedEvent = asRecord(
+      await events.waitFor((event) => {
+        const snapshot = event?.snapshot;
+        return (
+          event?.type === 'ROBOT_IDLE' &&
+          snapshot?.activeJob === null &&
+          snapshot?.slots?.some(
+            (slot) =>
+              slot?.vehicleId === firstVehicle.vehicleId && slot?.state === 'OCCUPIED',
+          ) &&
+          snapshot?.slots?.some(
+            (slot) =>
+              slot?.vehicleId === secondVehicle.vehicleId && slot?.state === 'OCCUPIED',
+          )
+        );
+      }, '두 차량 PARKED 및 대기 복귀 이벤트'),
+      '두 차량 PARKED 이벤트',
+    );
+    const twoVehicleSnapshot = validateSnapshot(
+      secondParkedEvent.snapshot,
+      '두 차량 PARKED snapshot',
+    );
+    const secondSlot = twoVehicleSnapshot.slots.find(
+      (slot) => slot.vehicleId === secondVehicle.vehicleId,
+    )?.id;
+    if (!secondSlot || secondSlot === firstSlot) {
+      throw new Error('두 번째 차량이 독립된 주차면에 배정되지 않았습니다.');
+    }
+    if (initialLotWasEmpty && secondSlot !== '6') {
+      throw new Error(`빈 주차장의 4시간 이상 차량이 6번에 배정되지 않았습니다 (${secondSlot}).`);
+    }
+    pass(`두 번째 차량 독립 주차 및 시간 기반 배정 (slot=${secondSlot})`);
 
     const retrievalResponse = asRecord(
       await requestJson(
         apiUrl(baseUrl, '/v1/retrieval-requests'),
-        { method: 'POST', body: JSON.stringify({ vehicleId }) },
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            customerId,
+            vehicleId: firstVehicle.vehicleId,
+          }),
+        },
         options.timeoutMs,
       ),
-      '출차 요청 응답',
+      '첫 차량 출차 요청 응답',
     );
     const retrievalRequestId = requireString(retrievalResponse, 'requestId', '출차 요청 응답');
-    pass(`POST retrieval request (${retrievalRequestId})`);
+    pass(`POST 첫 차량 원터치 출차 요청 (${retrievalRequestId})`);
 
-    const idleEvent = asRecord(
+    const firstRetrievedEvent = asRecord(
       await events.waitFor((event) => {
         const snapshot = event?.snapshot;
         return (
-          snapshot?.job?.id === retrievalRequestId &&
-          snapshot?.job?.state === 'IDLE' &&
-          snapshot?.slots?.every((slot) => slot?.vehicleId !== vehicleId)
+          event?.type === 'ROBOT_IDLE' &&
+          snapshot?.activeJob === null &&
+          snapshot?.slots?.every((slot) => slot?.vehicleId !== firstVehicle.vehicleId) &&
+          snapshot?.slots?.some(
+            (slot) =>
+              slot?.vehicleId === secondVehicle.vehicleId && slot?.state === 'OCCUPIED',
+          )
         );
-      }, 'IDLE WebSocket 이벤트'),
-      'IDLE 이벤트',
+      }, '첫 차량만 출차 후 대기 복귀 이벤트'),
+      '독립 출차 이벤트',
     );
-    validateSnapshot(idleEvent.snapshot, 'IDLE snapshot');
-    pass('WebSocket 출차 완료 상태 전이');
+    validateSnapshot(firstRetrievedEvent.snapshot, '독립 출차 snapshot');
+
+    const listedAfterFirstRetrieval = validateVehicleList(
+      await requestJson(
+        apiUrl(
+          baseUrl,
+          `/v1/customers/${encodeURIComponent(customerId)}/vehicles`,
+        ),
+        undefined,
+        options.timeoutMs,
+      ),
+      customerId,
+      '첫 차량 출차 후 고객 차량 목록',
+    );
+    const firstVehicleState = listedAfterFirstRetrieval.find(
+      (vehicle) => vehicle.vehicleId === firstVehicle.vehicleId,
+    );
+    const secondVehicleState = listedAfterFirstRetrieval.find(
+      (vehicle) => vehicle.vehicleId === secondVehicle.vehicleId,
+    );
+    if (firstVehicleState?.state !== 'RETRIEVED') {
+      throw new Error(`첫 차량 상태가 RETRIEVED가 아닙니다 (${firstVehicleState?.state}).`);
+    }
+    if (secondVehicleState?.state !== 'PARKED' || secondVehicleState.slotId !== secondSlot) {
+      throw new Error('첫 차량 출차가 두 번째 차량의 PARKED 상태를 변경했습니다.');
+    }
+    pass('첫 차량 독립 출차 후 두 번째 차량 PARKED 유지');
+
+    await requestJson(
+      apiUrl(baseUrl, '/v1/retrieval-requests'),
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          customerId,
+          vehicleId: secondVehicle.vehicleId,
+        }),
+      },
+      options.timeoutMs,
+    );
+    await events.waitFor((event) => {
+      const snapshot = event?.snapshot;
+      return (
+        event?.type === 'ROBOT_IDLE' &&
+        snapshot?.activeJob === null &&
+        snapshot?.slots?.every(
+          (slot) =>
+            slot?.vehicleId !== firstVehicle.vehicleId &&
+            slot?.vehicleId !== secondVehicle.vehicleId,
+        )
+      );
+    }, '두 번째 차량 정리 출차 이벤트');
+    pass('두 번째 차량 정리 출차');
 
     const finalSnapshot = validateSnapshot(
       await requestJson(
@@ -415,10 +610,15 @@ async function run() {
       '최종 REST snapshot',
     );
     if (finalSnapshot.job.state !== 'IDLE') throw new Error('최종 작업 상태가 IDLE이 아닙니다.');
-    if (finalSnapshot.slots.some((slot) => slot.vehicleId === vehicleId)) {
+    if (finalSnapshot.activeJob !== null) throw new Error('최종 activeJob이 null이 아닙니다.');
+    if (
+      finalSnapshot.slots.some((slot) =>
+        registeredVehicles.some((vehicle) => vehicle.vehicleId === slot.vehicleId),
+      )
+    ) {
       throw new Error('출차 완료 뒤 검증 차량이 주차면에 남아 있습니다.');
     }
-    pass('최종 REST snapshot 일치');
+    pass('최종 REST snapshot 및 activeJob=null 일치');
   } finally {
     events.close();
   }

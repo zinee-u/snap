@@ -10,12 +10,16 @@ void main() {
   late PiGatewayClient client;
   late StreamSubscription<HttpRequest> requests;
   Map<String, Object?>? receivedParkingBody;
+  Map<String, Object?>? receivedRetrievalBody;
+  Map<String, Object?>? receivedRegistrationBody;
   var responseLotId = 'demo-01';
   var malformedSnapshot = false;
   var emptyRequestId = false;
 
   setUp(() async {
     receivedParkingBody = null;
+    receivedRetrievalBody = null;
+    receivedRegistrationBody = null;
     responseLotId = 'demo-01';
     malformedSnapshot = false;
     emptyRequestId = false;
@@ -32,6 +36,24 @@ void main() {
           snapshot.remove('robot');
         }
         request.response.write(jsonEncode(snapshot));
+      } else if (request.method == 'GET' &&
+          request.uri.path == '/v1/customers/customer-one/vehicles') {
+        request.response.write(jsonEncode(<String, Object?>{
+          'customerId': 'customer-one',
+          'vehicles': <Object?>[
+            _vehicle('VEH-1', '12가3456', 'READY_TO_PARK'),
+            _vehicle('VEH-2', '34나5678', 'PARKED', slotId: '4'),
+          ],
+        }));
+      } else if (request.method == 'POST' &&
+          request.uri.path == '/v1/customers/customer-one/vehicles') {
+        receivedRegistrationBody = Map<String, Object?>.from(
+          jsonDecode(await utf8.decoder.bind(request).join())
+              as Map<Object?, Object?>,
+        );
+        request.response.write(jsonEncode(<String, Object?>{
+          'vehicle': _vehicle('VEH-3', '56다7890', 'READY_TO_PARK'),
+        }));
       } else if (request.method == 'POST' &&
           request.uri.path == '/v1/parking-requests') {
         receivedParkingBody = Map<String, Object?>.from(
@@ -41,6 +63,16 @@ void main() {
         request.response.write(jsonEncode(<String, Object?>{
           'requestId': emptyRequestId ? '' : 'REQ-TEST',
           'snapshot': _snapshot('REQUESTED', lotId: responseLotId),
+        }));
+      } else if (request.method == 'POST' &&
+          request.uri.path == '/v1/retrieval-requests') {
+        receivedRetrievalBody = Map<String, Object?>.from(
+          jsonDecode(await utf8.decoder.bind(request).join())
+              as Map<Object?, Object?>,
+        );
+        request.response.write(jsonEncode(<String, Object?>{
+          'requestId': 'REQ-OUT',
+          'snapshot': _snapshot('RETRIEVING', lotId: responseLotId),
         }));
       } else if (request.uri.path == '/fail') {
         request.response.statusCode = HttpStatus.conflict;
@@ -63,23 +95,56 @@ void main() {
     final snapshot = await client.fetchSnapshot();
 
     expect(snapshot.lotId, 'demo-01');
-    expect(snapshot.slots.single.id, 'A1');
+    expect(snapshot.slots.single.id, '1');
   });
 
-  test('sends the contract body and parses the POST response snapshot', () async {
+  test('fetches only the configured customer vehicles', () async {
+    final vehicles = await client.fetchVehicles(customerId: 'customer-one');
+
+    expect(vehicles, hasLength(2));
+    expect(vehicles.first.vehicleNumber, '12가3456');
+    expect(vehicles.last.slotId, '4');
+  });
+
+  test('registers a vehicle number for the configured customer', () async {
+    final vehicle = await client.registerVehicle(
+      customerId: 'customer-one',
+      vehicleNumber: '56다7890',
+    );
+
+    expect(receivedRegistrationBody, <String, Object?>{
+      'vehicleNumber': '56다7890',
+    });
+    expect(vehicle.id, 'VEH-3');
+  });
+
+  test('sends customer and vehicle ids in the parking request', () async {
     final result = await client.requestParking(
-      vehicleId: 'SNAP-01',
+      customerId: 'customer-one',
+      vehicleId: 'VEH-1',
       expectedMinutes: 120,
-      preference: 'AUTO',
     );
 
     expect(receivedParkingBody, <String, Object?>{
-      'vehicleId': 'SNAP-01',
+      'customerId': 'customer-one',
+      'vehicleId': 'VEH-1',
       'expectedMinutes': 120,
-      'preference': 'AUTO',
     });
     expect(result.requestId, 'REQ-TEST');
     expect(result.snapshot?.job.state.wireName, 'REQUESTED');
+  });
+
+  test('sends customer and vehicle ids in the retrieval request', () async {
+    final result = await client.requestRetrieval(
+      customerId: 'customer-one',
+      vehicleId: 'VEH-2',
+    );
+
+    expect(receivedRetrievalBody, <String, Object?>{
+      'customerId': 'customer-one',
+      'vehicleId': 'VEH-2',
+    });
+    expect(result.requestId, 'REQ-OUT');
   });
 
   test('rejects a malformed REST snapshot', () async {
@@ -117,9 +182,9 @@ void main() {
 
     await expectLater(
       client.requestParking(
-        vehicleId: 'SNAP-01',
+        customerId: 'customer-one',
+        vehicleId: 'VEH-1',
         expectedMinutes: 120,
-        preference: 'AUTO',
       ),
       throwsA(
         isA<GatewayException>().having(
@@ -140,7 +205,7 @@ Map<String, Object?> _snapshot(
       'lotId': lotId,
       'updatedAt': '2026-08-25T12:00:00Z',
       'slots': <Object?>[
-        <String, Object?>{'id': 'A1', 'state': 'AVAILABLE'},
+        <String, Object?>{'id': '1', 'state': 'AVAILABLE'},
       ],
       'robot': <String, Object?>{
         'state': '대기 중',
@@ -148,4 +213,17 @@ Map<String, Object?> _snapshot(
         'positionPct': 18,
       },
       'job': <String, Object?>{'state': jobState, 'message': jobState},
+    };
+
+Map<String, Object?> _vehicle(
+  String id,
+  String vehicleNumber,
+  String state, {
+  String? slotId,
+}) =>
+    <String, Object?>{
+      'vehicleId': id,
+      'vehicleNumber': vehicleNumber,
+      'state': state,
+      if (slotId != null) 'slotId': slotId,
     };

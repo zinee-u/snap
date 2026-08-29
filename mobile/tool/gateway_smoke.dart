@@ -8,6 +8,8 @@ import 'package:snap_mobile/core/networking/pi_gateway_client.dart';
 Future<void> main(List<String> arguments) async {
   final baseUrl = _argument(arguments, '--base-url') ?? 'http://127.0.0.1:8101';
   final lotId = _argument(arguments, '--lot-id') ?? 'demo-01';
+  final customerId =
+      _argument(arguments, '--customer-id') ?? 'demo-customer';
   final client = PiGatewayClient(baseUri: Uri.parse(baseUrl));
   WebSocket? socket;
 
@@ -23,6 +25,9 @@ Future<void> main(List<String> arguments) async {
       throw StateError('Snapshot 계약이 예상과 다릅니다.');
     }
     stdout.writeln('[PASS] GET snapshot (${snapshot.slots.length} slots)');
+
+    final vehicles = await client.fetchVehicles(customerId: customerId);
+    stdout.writeln('[PASS] GET customer vehicles (${vehicles.length} vehicles)');
 
     socket = await WebSocket.connect(client.eventsUri.toString())
         .timeout(client.requestTimeout);

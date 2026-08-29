@@ -31,6 +31,7 @@ class SnapApp extends StatelessWidget {
       home: ParkingDashboard(
         gatewayBaseUri: config.gatewayBaseUri,
         lotId: config.lotId,
+        customerId: config.customerId,
       ),
     );
   }
