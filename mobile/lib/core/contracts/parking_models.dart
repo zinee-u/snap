@@ -21,6 +21,7 @@ enum SlotState {
 enum JobState {
   idle,
   requested,
+  running,
   vehicleDetected,
   movingToVehicle,
   lifting,
@@ -36,13 +37,14 @@ enum JobState {
     return switch (_wire(value)) {
       'IDLE' => JobState.idle,
       'REQUESTED' => JobState.requested,
+      'RUNNING' => JobState.running,
       'VEHICLE_DETECTED' => JobState.vehicleDetected,
       'MOVING_TO_VEHICLE' => JobState.movingToVehicle,
       'LIFTING' => JobState.lifting,
       'MOVING_TO_SLOT' => JobState.movingToSlot,
       'PARKED' => JobState.parked,
       'RETRIEVING' => JobState.retrieving,
-      'RETURNING' => JobState.returning,
+      'RETURNING' || 'RETURNING_TO_STANDBY' => JobState.returning,
       'FAILED' || 'ERROR' => JobState.failed,
       'EMERGENCY_STOP' => JobState.emergencyStop,
       _ => JobState.unknown,
@@ -64,6 +66,114 @@ enum JobState {
       this == JobState.parked ||
       this == JobState.failed ||
       this == JobState.emergencyStop;
+}
+
+enum VehicleState {
+  readyToPark,
+  parkingRequested,
+  parkingInProgress,
+  parked,
+  retrievalRequested,
+  retrieving,
+  retrieved,
+  error,
+  unknown;
+
+  factory VehicleState.fromWire(Object? value) {
+    return switch (_wire(value)) {
+      'READY' || 'READY_TO_PARK' => VehicleState.readyToPark,
+      'PARKING_REQUESTED' => VehicleState.parkingRequested,
+      'PARKING_IN_PROGRESS' => VehicleState.parkingInProgress,
+      'PARKED' => VehicleState.parked,
+      'RETRIEVAL_REQUESTED' => VehicleState.retrievalRequested,
+      'RETRIEVING' => VehicleState.retrieving,
+      'RETRIEVED' => VehicleState.retrieved,
+      'ERROR' || 'FAILED' => VehicleState.error,
+      _ => VehicleState.unknown,
+    };
+  }
+
+  String get wireName {
+    return switch (this) {
+      VehicleState.readyToPark => 'READY_TO_PARK',
+      VehicleState.parkingRequested => 'PARKING_REQUESTED',
+      VehicleState.parkingInProgress => 'PARKING_IN_PROGRESS',
+      VehicleState.parked => 'PARKED',
+      VehicleState.retrievalRequested => 'RETRIEVAL_REQUESTED',
+      VehicleState.retrieving => 'RETRIEVING',
+      VehicleState.retrieved => 'RETRIEVED',
+      VehicleState.error => 'ERROR',
+      VehicleState.unknown => 'UNKNOWN',
+    };
+  }
+
+  bool get canRequestParking =>
+      this == VehicleState.readyToPark || this == VehicleState.retrieved;
+
+  bool get canRequestRetrieval => this == VehicleState.parked;
+}
+
+class CustomerVehicle {
+  const CustomerVehicle({
+    required this.id,
+    required this.vehicleNumber,
+    required this.state,
+    this.slotId,
+    this.expectedMinutes,
+  });
+
+  factory CustomerVehicle.fromPayload(Object? payload) {
+    final envelope = asStringMap(payload);
+    final nested = envelope['vehicle'] ?? envelope['data'];
+    return CustomerVehicle.fromJson(
+      nested is Map<Object?, Object?> ? asStringMap(nested) : envelope,
+    );
+  }
+
+  factory CustomerVehicle.fromJson(Map<String, Object?> json) {
+    final id = _nullableString(
+      json['id'] ?? json['vehicleId'] ?? json['vehicle_id'],
+    );
+    if (id == null) {
+      throw const FormatException('차량 정보에 id가 없습니다.');
+    }
+    final vehicleNumber = _nullableString(
+      json['vehicleNumber'] ?? json['vehicle_number'],
+    );
+    if (vehicleNumber == null) {
+      throw const FormatException('차량 정보에 vehicleNumber가 없습니다.');
+    }
+    final stateValue = json['state'] ?? json['status'];
+    if (stateValue == null || stateValue.toString().trim().isEmpty) {
+      throw const FormatException('차량 정보에 state가 없습니다.');
+    }
+
+    return CustomerVehicle(
+      id: id,
+      vehicleNumber: vehicleNumber,
+      state: VehicleState.fromWire(stateValue),
+      slotId: _nullableString(json['slotId'] ?? json['slot_id']),
+      expectedMinutes: _nullableInt(
+        json['expectedMinutes'] ?? json['expected_minutes'],
+      ),
+    );
+  }
+
+  final String id;
+  final String vehicleNumber;
+  final VehicleState state;
+  final String? slotId;
+  final int? expectedMinutes;
+
+  String get vehicleId => id;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'id': id,
+        'vehicleNumber': vehicleNumber,
+        'state': state.wireName,
+        if (slotId != null) 'slotId': slotId,
+        if (expectedMinutes != null) 'expectedMinutes': expectedMinutes,
+      };
 }
 
 class ParkingSlot {
@@ -159,7 +269,8 @@ class JobSnapshot {
       reasonCode: _nullableString(json['reasonCode'] ?? json['reason_code']) ??
           fallback?.reasonCode,
       reason: _nullableString(json['reason']) ?? fallback?.reason,
-      message: (json['message'] ?? fallback?.message ?? '작업 정보가 없습니다.').toString(),
+      message: (json['message'] ?? fallback?.message ?? '작업 정보가 없습니다.')
+          .toString(),
     );
   }
 
@@ -283,7 +394,8 @@ class GatewayCommandResult {
     }
     final json = asStringMap(payload);
     final snapshotPayload = json['snapshot'];
-    final requestId = (json['requestId'] ?? json['request_id'] ?? '').toString().trim();
+    final requestId =
+        (json['requestId'] ?? json['request_id'] ?? '').toString().trim();
     if (strict && requestId.isEmpty) {
       throw const FormatException('명령 응답에 requestId가 없습니다.');
     }
@@ -442,8 +554,14 @@ String? _nullableString(Object? value) {
 }
 
 int _boundedInt(Object? value, int fallback, int minimum, int maximum) {
-  final parsed = value is num ? value.round() : int.tryParse(value?.toString() ?? '');
+  final parsed = value is num
+      ? value.round()
+      : int.tryParse(value?.toString() ?? '');
   return (parsed ?? fallback).clamp(minimum, maximum).toInt();
+}
+
+int? _nullableInt(Object? value) {
+  return value is num ? value.round() : int.tryParse(value?.toString() ?? '');
 }
 
 DateTime _dateTime(Object? value, DateTime? fallback) {
