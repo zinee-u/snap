@@ -9,7 +9,29 @@ import 'pi_gateway_client.dart';
 
 enum GatewayConnectionState { disconnected, connecting, connected, reconnecting }
 
-class PiGatewaySession extends ChangeNotifier {
+abstract interface class ParkingSessionController implements Listenable {
+  GatewayConnectionState get connectionState;
+  ParkingSnapshot? get snapshot;
+  List<CustomerVehicle> get vehicles;
+  String? get lastError;
+  String? get lastEventType;
+  bool get isSubmitting;
+
+  Future<void> start();
+  Future<void> reconnectNow();
+  Future<void> refresh();
+  Future<void> resume();
+  Future<GatewayCommandResult> requestParking({
+    required String vehicleId,
+    required int expectedMinutes,
+  });
+  Future<GatewayCommandResult> requestRetrieval({required String vehicleId});
+  Future<CustomerVehicle> registerVehicle({required String vehicleNumber});
+  void dispose();
+}
+
+class PiGatewaySession extends ChangeNotifier
+    implements ParkingSessionController {
   PiGatewaySession({
     required this.client,
     this.lotId = 'demo-01',
@@ -24,7 +46,7 @@ class PiGatewaySession extends ChangeNotifier {
               Duration(seconds: 8),
               Duration(seconds: 15),
             ]
-            : reconnectDelays;
+            : List<Duration>.unmodifiable(reconnectDelays);
 
   final PiGatewayClient client;
   final String lotId;
@@ -48,13 +70,20 @@ class PiGatewaySession extends ChangeNotifier {
   StreamSubscription<dynamic>? _socketSubscription;
   Timer? _retryTimer;
 
+  @override
   GatewayConnectionState get connectionState => _connectionState;
+  @override
   ParkingSnapshot? get snapshot => _snapshot;
+  @override
   List<CustomerVehicle> get vehicles => _vehicles;
+  @override
   String? get lastError => _lastError;
+  @override
   String? get lastEventType => _lastEventType;
+  @override
   bool get isSubmitting => _isSubmitting;
 
+  @override
   Future<void> start() async {
     if (_disposed || _started) {
       return;
@@ -64,6 +93,7 @@ class PiGatewaySession extends ChangeNotifier {
     await _connect(generation);
   }
 
+  @override
   Future<void> reconnectNow() async {
     if (_disposed) {
       return;
@@ -76,6 +106,7 @@ class PiGatewaySession extends ChangeNotifier {
     await _connect(generation);
   }
 
+  @override
   Future<void> refresh() async {
     if (_disposed) {
       return;
@@ -100,6 +131,7 @@ class PiGatewaySession extends ChangeNotifier {
     }
   }
 
+  @override
   Future<void> resume() async {
     if (_connectionState == GatewayConnectionState.connected) {
       try {
@@ -112,6 +144,7 @@ class PiGatewaySession extends ChangeNotifier {
     await reconnectNow();
   }
 
+  @override
   Future<GatewayCommandResult> requestParking({
     required String vehicleId,
     required int expectedMinutes,
@@ -130,6 +163,7 @@ class PiGatewaySession extends ChangeNotifier {
     });
   }
 
+  @override
   Future<GatewayCommandResult> requestRetrieval({required String vehicleId}) {
     return _runExclusive(() async {
       final result = await client.requestRetrieval(
@@ -144,6 +178,7 @@ class PiGatewaySession extends ChangeNotifier {
     });
   }
 
+  @override
   Future<CustomerVehicle> registerVehicle({required String vehicleNumber}) {
     return _runExclusive(() async {
       final vehicle = await client.registerVehicle(
