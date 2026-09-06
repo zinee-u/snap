@@ -26,6 +26,8 @@ Gateway가 주차면을 자동 배정하므로 앱의 주차면 도식은 선택
 
 현재 Gateway 계약에는 `clientRequestId`나 Idempotency-Key가 없으므로 네트워크 재시도까지 포함한 종단 간 중복 방지는 아직 제공하지 않는다.
 
+앱을 직접 개발하지 않고 Windows 10·11에서 Galaxy 또는 iPhone 배포본만 설치·확인하려면 [Windows 팀원용 실기기 확인 매뉴얼](../docs/manual/windows-mobile-app-device-check.md)을 먼저 따른다.
+
 ## 1. 개발환경 준비
 
 Flutter Stable SDK와 Android SDK를 설치한다. iOS 빌드는 macOS, Xcode, CocoaPods 및 서명 설정이 추가로 필요하다.
@@ -88,7 +90,7 @@ flutter run -d <physical-device-id> \
 
 모바일 OS는 평문 HTTP를 기본 차단할 수 있다. 데모 Gateway가 아직 HTTPS/WSS를 제공하지 않는 경우에만 현재 러너에 개발용 예외를 적용한다.
 
-현재 개발 러너는 실제 Pi `172.30.1.80` 검증용으로 Android Debug에만 cleartext를 허용하고, iOS는 ATS의 `NSExceptionDomains`에서 해당 IP 하나만 허용한다. 두 설정 모두 `SNAP_DEV_NETWORK` 마커 안에 있어 아래 제거 명령으로 되돌릴 수 있다. 다른 Pi 주소를 사용할 때는 주소를 바꾸거나 범용 개발 옵션을 다시 적용한다.
+현재 개발 러너는 실제 Pi 검증용으로 Android Debug에만 cleartext를 허용하고, iOS는 ATS의 `NSExceptionDomains`에서 빌드 대상 `PI_IP` 하나만 허용한다. 두 설정 모두 `SNAP_DEV_NETWORK` 마커 안에 있어 아래 제거 명령으로 되돌릴 수 있다. 체크아웃에 이전 시험 주소가 남아 있을 수 있으므로 다른 Pi를 사용할 때는 iOS 예외 키와 `PI_API_BASE_URL`을 같은 주소로 바꾼다.
 
 ```bash
 cd mobile
@@ -148,6 +150,6 @@ lib/
 
 ## 현재 로컬 검증 경계
 
-2026-09-06 기준 Flutter 3.47.2/Dart 3.13.2에서 `flutter analyze`, Flutter 테스트 41개, Android Debug APK 빌드, 서명된 iPhoneOS Release 빌드가 통과했다. 같은 테스트에서 430×932/932×430 phone과 834×1194/1194×834 tablet 레이아웃을 검증한다. 동일한 Dart 클라이언트로 실제 Raspberry Pi `172.30.1.80:8101`의 Health, REST Snapshot, 고객 차량 조회, WebSocket Snapshot을 검증했다. 같은 Pi 주소를 주입한 Release 앱을 실제 iPad에 덮어 설치하고 전면 실행했다.
+2026-09-06 기준 Flutter 3.47.2/Dart 3.13.2에서 `flutter analyze`, Flutter 테스트 41개, Android Debug APK 빌드, 서명된 iPhoneOS Release 빌드가 통과했다. 같은 테스트에서 430×932/932×430 phone과 834×1194/1194×834 tablet 레이아웃을 검증한다. 동일한 Dart 클라이언트로 검증 당시 실제 Raspberry Pi의 `PI_IP:8101`에서 Health, REST Snapshot, 고객 차량 조회, WebSocket Snapshot을 확인했다. 같은 Pi 주소를 주입한 Release 앱을 실제 iPad에 덮어 설치하고 전면 실행했다.
 
 저장소에는 개인 Apple Development Team을 고정하지 않는다. 각 개발자가 Xcode에서 자신의 Team을 선택해야 실제 기기 서명이 가능하다. 현재 Pi의 Gateway 모드는 `pi-simulator-multi-vehicle`이므로 실제 센서·모터 E2E와 Gateway 강제 단절 후 재연결 시나리오는 별도 검증 범위다.

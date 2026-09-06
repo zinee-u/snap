@@ -1,5 +1,7 @@
 # Flutter 고객 앱과 실제 Raspberry Pi Wi-Fi 연동 매뉴얼
 
+> 이 문서는 앱 빌드와 Gateway 운영 담당자용이다. 앱 개발 경험 없이 Windows 10·11에서 Galaxy 또는 iPhone 배포본만 설치·확인하려면 [Windows 팀원용 실기기 확인 매뉴얼](windows-mobile-app-device-check.md)을 먼저 따른다.
+
 ## 1. 목적과 완료 상태
 
 이 문서는 처음 환경을 구성하는 팀원이 다음 상태까지 확인하도록 안내한다.
