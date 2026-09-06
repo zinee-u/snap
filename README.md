@@ -70,7 +70,6 @@ Flutter SDK가 준비된 환경에서는 다음을 실행한다.
 
 ```bash
 cd mobile
-sh tool/bootstrap_platforms.sh
 flutter pub get
 flutter analyze
 flutter test

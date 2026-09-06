@@ -69,8 +69,9 @@ Flutter SDK 설치 후 다음 Gate를 실행한다.
 
 ```bash
 cd mobile
-sh tool/bootstrap_platforms.sh --allow-insecure-local-http
 flutter pub get
+# HTTP/ws 개발 Gateway를 사용할 때만 적용한다.
+dart run tool/configure_local_network.dart --allow-insecure-local-http
 flutter analyze
 flutter test
 flutter devices

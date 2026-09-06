@@ -16,12 +16,13 @@
 - 앱이 포그라운드로 돌아오면 최신 Snapshot 복구
 - 홈·차량·기록·설정 4개 탭과 연결/주차 요청/진행/완료 상태 기반 화면 전환
 - 동일한 Widget 구조를 공유하는 Light/Dark 테마와 S.N.A.P 전기 블루 포인트 색상
+- 스토리보드 기반의 실사형 차량·로봇 hero/top-view 자산, 6면 주차장, 이동 경로·진행 단계 UI
 - 차량번호별 `1/2/3/4시간 이상` 입차 요청과 원터치 출차 요청 UI
 - 로봇 작업 중 물리 요청 비활성화, 만차 안내, 다른 차량 등록 UI
 
-Gateway가 주차면을 자동 배정하므로 앱의 주차면 도식은 선택 입력이 아니라 실시간 현황과 배정 결과를 표시한다. 화면 설계 공유용 Light/Dark 스토리보드는 `assets/storyboard/tesla-theme/`에 있다.
+Gateway가 주차면을 자동 배정하므로 앱의 주차면 도식은 선택 입력이 아니라 실시간 현황과 배정 결과를 표시한다. Light/Dark 화면의 기준은 `assets/storyboard/tesla-theme/`이고, 여기서 분리·재제작한 투명 런타임 자산은 `assets/images/`에 있다. 전체 스크린샷을 배경으로 사용하지 않으므로 차량·주차면·로봇 위치·진행률은 실제 Gateway 데이터에 맞춰 계속 갱신된다.
 
-외부 패키지 없이 Flutter/Dart SDK만 사용한다. 생성물인 `android/`, `ios/` 러너는 Flutter SDK가 설치된 환경에서 현재 Stable 템플릿으로 만든다.
+외부 패키지 없이 Flutter/Dart SDK만 사용한다. 저장소에 포함된 `android/`, `ios/` 러너는 Flutter 3.47.2 Stable 템플릿으로 생성했다.
 
 현재 Gateway 계약에는 `clientRequestId`나 Idempotency-Key가 없으므로 네트워크 재시도까지 포함한 종단 간 중복 방지는 아직 제공하지 않는다.
 
@@ -35,17 +36,16 @@ dart --version
 flutter doctor -v
 ```
 
-현재 소스가 있는 폴더에서 플랫폼 러너를 생성한다. 이 스크립트는 임시 Flutter 프로젝트에서 공식 러너만 가져오므로 이 저장소의 `lib/`, `test/`, `pubspec.yaml`을 덮어쓰지 않는다.
+플랫폼 러너는 저장소에 포함되어 있으므로 의존성을 받은 뒤 바로 검증한다.
 
 ```bash
 cd mobile
-sh tool/bootstrap_platforms.sh
 flutter pub get
-flutter test
 flutter analyze
+flutter test
 ```
 
-이미 `android/` 또는 `ios/`가 있으면 스크립트는 안전하게 중단한다. 팀에서 Flutter Stable 버전을 확정한 뒤 생성된 러너와 `.metadata`를 저장소에 함께 커밋한다.
+`tool/bootstrap_platforms.sh`는 플랫폼 디렉터리가 없는 소스 사본에서 러너를 재생성할 때만 사용한다. 현재 체크아웃처럼 `android/` 또는 `ios/`가 이미 있으면 기존 플랫폼 파일을 보호하기 위해 안전하게 중단한다.
 
 ## 2. Gateway 실행과 앱 연결
 
@@ -86,25 +86,27 @@ flutter run -d <physical-device-id> \
 
 ## 3. 로컬 Raspberry Pi의 HTTP/ws 허용
 
-모바일 OS는 평문 HTTP를 기본 차단할 수 있다. 데모 Gateway가 아직 HTTPS/WSS를 제공하지 않는 경우에만 아래 옵션으로 플랫폼 러너를 생성한다.
+모바일 OS는 평문 HTTP를 기본 차단할 수 있다. 데모 Gateway가 아직 HTTPS/WSS를 제공하지 않는 경우에만 현재 러너에 개발용 예외를 적용한다.
+
+현재 개발 러너는 실제 Pi `172.30.1.80` 검증용으로 Android Debug에만 cleartext를 허용하고, iOS는 ATS의 `NSExceptionDomains`에서 해당 IP 하나만 허용한다. 두 설정 모두 `SNAP_DEV_NETWORK` 마커 안에 있어 아래 제거 명령으로 되돌릴 수 있다. 다른 Pi 주소를 사용할 때는 주소를 바꾸거나 범용 개발 옵션을 다시 적용한다.
 
 ```bash
 cd mobile
-sh tool/bootstrap_platforms.sh --allow-insecure-local-http
-```
-
-이미 러너를 생성했다면 다음만 실행한다.
-
-```bash
 dart run tool/configure_local_network.dart --allow-insecure-local-http
 ```
 
-플랫폼 생성 스크립트는 옵션과 관계없이 Android Release의 `INTERNET` 권한과 iOS의 `NSLocalNetworkUsageDescription`을 추가한다. 평문 옵션을 사용하면 다음 개발 전용 설정도 적용한다.
+플랫폼 디렉터리가 없는 별도 소스 사본에서 러너를 재생성하면서 예외를 적용하려면 다음 옵션을 사용한다.
+
+```bash
+sh tool/bootstrap_platforms.sh --allow-insecure-local-http
+```
+
+플랫폼 생성 스크립트는 옵션과 관계없이 Android Release의 `INTERNET` 권한과 iOS의 `NSLocalNetworkUsageDescription`을 추가한다. 마커가 없는 새 러너에서 평문 옵션을 사용하면 다음 개발 전용 설정도 적용한다.
 
 - Android: `android/app/src/debug/AndroidManifest.xml`에만 `usesCleartextTraffic=true`를 병합하므로 Release에는 적용되지 않는다.
 - iOS: `ios/Runner/Info.plist`에 개발용 `NSAllowsArbitraryLoads` 블록을 표시 마커와 함께 넣는다.
 
-`NSAllowsArbitraryLoads`는 iOS Release에도 영향을 줄 수 있는 **개발 전용 예외**다. 배포 전 Gateway를 HTTPS/WSS로 전환하고 반드시 제거한다.
+`NSAllowsArbitraryLoads`나 IP별 ATS 예외는 iOS Release에도 영향을 줄 수 있는 **개발 전용 예외**다. App Store/외부 배포 전 Gateway를 HTTPS/WSS로 전환하고 반드시 제거한다. 사내 실기기용 development-signed Release로 HTTP Pi를 검증할 때만 필요한 예외를 유지한다.
 
 ```bash
 dart run tool/configure_local_network.dart --remove-insecure-local-http
@@ -113,6 +115,8 @@ flutter build ios --release
 ```
 
 제거 명령은 개발용 cleartext/ATS 블록만 삭제하며, 앱 통신에 필요한 Android `INTERNET` 권한과 iOS 로컬 네트워크 설명은 유지한다.
+
+Android Release 러너는 debug key로 대체 서명하지 않는다. 배포용 APK/AAB를 만들기 전에 보호된 빌드 환경에서 별도의 Release keystore와 signing config를 설정한다. iOS도 저장소에 Team을 고정하지 않으므로 각 개발자 또는 CI의 서명 설정이 필요하다.
 
 실기기 연결 시 Pi와 휴대폰이 같은 네트워크인지, Pi 방화벽이 `8101/tcp`를 허용하는지, Gateway가 `127.0.0.1`이 아닌 `0.0.0.0`에 바인딩됐는지도 확인한다.
 
@@ -144,4 +148,6 @@ lib/
 
 ## 현재 로컬 검증 경계
 
-이 소스가 작성된 PC에는 Flutter/Dart SDK가 없어 `flutter analyze`, `flutter test`, iOS/Android 빌드를 아직 실행할 수 없다. SDK 설치 후 위 명령을 순서대로 통과시키고, Android Emulator와 iOS Simulator 또는 실기기에서 각각 한 번 이상 Gateway 재연결을 확인해야 한다. 실제 센서·모터 E2E는 이 앱의 검증 범위가 아니다.
+2026-09-06 기준 Flutter 3.47.2/Dart 3.13.2에서 `flutter analyze`, Flutter 테스트 41개, Android Debug APK 빌드, 서명된 iPhoneOS Release 빌드가 통과했다. 같은 테스트에서 430×932/932×430 phone과 834×1194/1194×834 tablet 레이아웃을 검증한다. 동일한 Dart 클라이언트로 실제 Raspberry Pi `172.30.1.80:8101`의 Health, REST Snapshot, 고객 차량 조회, WebSocket Snapshot을 검증했다. 같은 Pi 주소를 주입한 Release 앱을 실제 iPad에 덮어 설치하고 전면 실행했다.
+
+저장소에는 개인 Apple Development Team을 고정하지 않는다. 각 개발자가 Xcode에서 자신의 Team을 선택해야 실제 기기 서명이 가능하다. 현재 Pi의 Gateway 모드는 `pi-simulator-multi-vehicle`이므로 실제 센서·모터 E2E와 Gateway 강제 단절 후 재연결 시나리오는 별도 검증 범위다.

@@ -1,6 +1,7 @@
 .DS_Store
 .codebase-memory/
 ports.md
+DEVENV.md
 
 docs/.meetings/
 docs/.templates/

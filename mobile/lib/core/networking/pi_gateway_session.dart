@@ -7,7 +7,12 @@ import 'package:flutter/foundation.dart';
 import '../contracts/parking_models.dart';
 import 'pi_gateway_client.dart';
 
-enum GatewayConnectionState { disconnected, connecting, connected, reconnecting }
+enum GatewayConnectionState {
+  disconnected,
+  connecting,
+  connected,
+  reconnecting
+}
 
 abstract interface class ParkingSessionController implements Listenable {
   GatewayConnectionState get connectionState;
@@ -40,12 +45,12 @@ class PiGatewaySession extends ChangeNotifier
     List<Duration>? reconnectDelays,
   }) : reconnectDelays = reconnectDelays == null || reconnectDelays.isEmpty
             ? const <Duration>[
-              Duration(seconds: 1),
-              Duration(seconds: 2),
-              Duration(seconds: 4),
-              Duration(seconds: 8),
-              Duration(seconds: 15),
-            ]
+                Duration(seconds: 1),
+                Duration(seconds: 2),
+                Duration(seconds: 4),
+                Duration(seconds: 8),
+                Duration(seconds: 15),
+              ]
             : List<Duration>.unmodifiable(reconnectDelays);
 
   final PiGatewayClient client;
@@ -272,8 +277,8 @@ class PiGatewaySession extends ChangeNotifier
     }
     try {
       final text = switch (message) {
-        String value => value,
-        List<int> value => utf8.decode(value),
+        final String value => value,
+        final List<int> value => utf8.decode(value),
         _ => throw const FormatException('지원하지 않는 WebSocket 메시지입니다.'),
       };
       final event = GatewayEvent.fromPayload(
@@ -343,11 +348,12 @@ class PiGatewaySession extends ChangeNotifier
     _notify();
   }
 
-  Future<({
-    ParkingSnapshot snapshot,
-    List<CustomerVehicle> vehicles,
-    int vehicleRequest,
-  })> _fetchGatewayState() async {
+  Future<
+      ({
+        ParkingSnapshot snapshot,
+        List<CustomerVehicle> vehicles,
+        int vehicleRequest,
+      })> _fetchGatewayState() async {
     final vehicleRequest = ++_vehicleRequestSequence;
     final values = await Future.wait<Object>(<Future<Object>>[
       client.fetchSnapshot(lotId: lotId),

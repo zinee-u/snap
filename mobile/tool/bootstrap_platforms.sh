@@ -36,12 +36,21 @@ flutter create \
   --project-name snap_mobile \
   "$generated_dir"
 
+# flutter create writes machine-local paths into generated files. Do not copy
+# those paths from the temporary project into the real checkout.
+rm -rf -- "$generated_dir/ios/Flutter/ephemeral"
+rm -f -- \
+  "$generated_dir/ios/Flutter/Generated.xcconfig" \
+  "$generated_dir/ios/Flutter/flutter_export_environment.sh" \
+  "$generated_dir/android/local.properties"
+
 cp -R "$generated_dir/android" "$project_dir/android"
 cp -R "$generated_dir/ios" "$project_dir/ios"
 cp "$generated_dir/.metadata" "$project_dir/.metadata"
 
 (
   cd "$project_dir"
+  flutter pub get
   if [ "$network_option" = "--allow-insecure-local-http" ]; then
     dart run tool/configure_local_network.dart --allow-insecure-local-http
   else
@@ -50,4 +59,4 @@ cp "$generated_dir/.metadata" "$project_dir/.metadata"
 )
 
 echo "iOS/Android 플랫폼 러너 생성이 완료됐습니다."
-echo "다음 명령: cd \"$project_dir\" && flutter pub get && flutter test"
+echo "다음 명령: cd \"$project_dir\" && flutter analyze && flutter test"

@@ -7,29 +7,47 @@ import 'package:snap_mobile/features/parking_lot/parking_views.dart';
 
 void main() {
   group('SnapTheme', () {
-    test('uses the same electric blue accent in light and dark modes', () {
-      final themes = <ThemeData>[SnapTheme.light(), SnapTheme.dark()];
+    test('uses accessible mode-specific electric blue accents', () {
+      final light = SnapTheme.light();
+      final dark = SnapTheme.dark();
 
       expect(SnapColors.electricBlue, const Color(0xFF087CFA));
-      for (final theme in themes) {
-        expect(theme.colorScheme.primary, SnapColors.electricBlue);
-        expect(theme.colorScheme.secondary, SnapColors.electricBlue);
+      expect(light.colorScheme.primary, SnapColors.electricBlueDeep);
+      expect(light.colorScheme.secondary, SnapColors.electricBlueDeep);
+      expect(dark.colorScheme.primary, SnapColors.electricBlueBright);
+      expect(dark.colorScheme.secondary, SnapColors.electricBlueBright);
+      expect(light.colorScheme.onPrimary, Colors.white);
+      expect(dark.colorScheme.onPrimary, const Color(0xFF002C55));
+      expect(
+        _contrastRatio(
+          light.colorScheme.primary,
+          light.colorScheme.onPrimary,
+        ),
+        greaterThanOrEqualTo(4.5),
+      );
+      expect(
+        _contrastRatio(
+          dark.colorScheme.primary,
+          dark.colorScheme.onPrimary,
+        ),
+        greaterThanOrEqualTo(4.5),
+      );
+
+      for (final theme in <ThemeData>[light, dark]) {
         expect(
           theme.filledButtonTheme.style?.backgroundColor
               ?.resolve(<MaterialState>{}),
-          SnapColors.electricBlue,
+          SnapColors.electricBlueDeep,
         );
         expect(
           theme.navigationBarTheme.iconTheme
-              ?.resolve(<MaterialState>{MaterialState.selected})
-              ?.color,
-          SnapColors.electricBlue,
+              ?.resolve(<MaterialState>{MaterialState.selected})?.color,
+          theme.colorScheme.primary,
         );
         expect(
           theme.navigationBarTheme.labelTextStyle
-              ?.resolve(<MaterialState>{MaterialState.selected})
-              ?.color,
-          SnapColors.electricBlue,
+              ?.resolve(<MaterialState>{MaterialState.selected})?.color,
+          theme.colorScheme.primary,
         );
       }
     });
@@ -47,14 +65,22 @@ void main() {
       expect(light.inputDecorationTheme.fillColor, Colors.white);
       expect(dark.inputDecorationTheme.fillColor, const Color(0xFF0B0D0F));
 
-      expect(light.colorScheme.error, SnapColors.warning);
+      expect(light.colorScheme.error, SnapColors.warningDeep);
       expect(dark.colorScheme.error, SnapColors.warning);
       expect(light.colorScheme.errorContainer, const Color(0xFFFFE8B0));
       expect(dark.colorScheme.errorContainer, const Color(0xFF382A06));
-      expect(light.colorScheme.onError, const Color(0xFF17130A));
+      expect(light.colorScheme.onError, Colors.white);
       expect(dark.colorScheme.onError, const Color(0xFF17130A));
       expect(light.colorScheme.onErrorContainer, const Color(0xFF4A3400));
       expect(dark.colorScheme.onErrorContainer, const Color(0xFFFFD56A));
+      expect(
+        _contrastRatio(light.colorScheme.error, light.colorScheme.onError),
+        greaterThanOrEqualTo(4.5),
+      );
+      expect(
+        _contrastRatio(dark.colorScheme.error, dark.colorScheme.onError),
+        greaterThanOrEqualTo(4.5),
+      );
     });
   });
 
@@ -77,6 +103,14 @@ void main() {
 
     expect(selectedMode, ThemeMode.dark);
   });
+}
+
+double _contrastRatio(Color first, Color second) {
+  final lighter =
+      first.computeLuminance() > second.computeLuminance() ? first : second;
+  final darker = identical(lighter, first) ? second : first;
+  return (lighter.computeLuminance() + 0.05) /
+      (darker.computeLuminance() + 0.05);
 }
 
 class ThemeModeSelectorHarness extends StatelessWidget {

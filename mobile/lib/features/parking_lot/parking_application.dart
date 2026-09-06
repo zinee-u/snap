@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../../app/snap_theme.dart';
 import '../../core/contracts/parking_models.dart';
 import '../../core/networking/pi_gateway_client.dart';
 import '../../core/networking/pi_gateway_session.dart';
@@ -35,11 +34,11 @@ class _ParkingApplicationState extends State<ParkingApplication>
   late final ParkingSessionController _session;
   late final bool _ownsSession;
   final Map<String, int> _expectedMinutes = <String, int>{};
-  final TextEditingController _registrationController =
-      TextEditingController();
+  final TextEditingController _registrationController = TextEditingController();
 
   ParkingTab _selectedTab = ParkingTab.home;
   String? _selectedVehicleId;
+  String? _dismissedCompletionVehicleId;
 
   @override
   void initState() {
@@ -79,11 +78,18 @@ class _ParkingApplicationState extends State<ParkingApplication>
       return;
     }
     final vehicles = _session.vehicles;
+    if (_dismissedCompletionVehicleId != null &&
+        !vehicles.any(
+          (vehicle) =>
+              vehicle.id == _dismissedCompletionVehicleId &&
+              vehicle.state == VehicleState.parked,
+        )) {
+      _dismissedCompletionVehicleId = null;
+    }
     if (vehicles.isNotEmpty &&
         !vehicles.any((vehicle) => vehicle.id == _selectedVehicleId)) {
-      _selectedVehicleId =
-          _preferredVehicle(vehicles, _session.snapshot)?.id ??
-              vehicles.first.id;
+      _selectedVehicleId = _preferredVehicle(vehicles, _session.snapshot)?.id ??
+          vehicles.first.id;
     }
     setState(() {});
   }
@@ -96,6 +102,9 @@ class _ParkingApplicationState extends State<ParkingApplication>
       snapshot,
       selectedId: _selectedVehicleId,
     );
+    final hasActiveOperation = snapshot != null &&
+        (_isActiveJob(snapshot.job.state) ||
+            _activeVehicle(_session.vehicles, snapshot) != null);
 
     return Scaffold(
       body: SafeArea(
@@ -103,8 +112,7 @@ class _ParkingApplicationState extends State<ParkingApplication>
         child: Column(
           children: <Widget>[
             if (_session.isSubmitting ||
-                _session.connectionState ==
-                    GatewayConnectionState.connecting)
+                _session.connectionState == GatewayConnectionState.connecting)
               const LinearProgressIndicator(minHeight: 2),
             Expanded(
               child: AnimatedSwitcher(
@@ -120,34 +128,36 @@ class _ParkingApplicationState extends State<ParkingApplication>
           ],
         ),
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedTab.index,
-        onDestinationSelected: (index) {
-          setState(() => _selectedTab = ParkingTab.values[index]);
-        },
-        destinations: const <NavigationDestination>[
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home_rounded),
-            label: '홈',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.directions_car_outlined),
-            selectedIcon: Icon(Icons.directions_car_filled_rounded),
-            label: '차량',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.history_outlined),
-            selectedIcon: Icon(Icons.history_rounded),
-            label: '기록',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings_rounded),
-            label: '설정',
-          ),
-        ],
-      ),
+      bottomNavigationBar: _selectedTab == ParkingTab.home && hasActiveOperation
+          ? null
+          : NavigationBar(
+              selectedIndex: _selectedTab.index,
+              onDestinationSelected: (index) {
+                setState(() => _selectedTab = ParkingTab.values[index]);
+              },
+              destinations: const <NavigationDestination>[
+                NavigationDestination(
+                  icon: Icon(Icons.home_outlined),
+                  selectedIcon: Icon(Icons.home_rounded),
+                  label: '홈',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.directions_car_outlined),
+                  selectedIcon: Icon(Icons.directions_car_filled_rounded),
+                  label: '차량',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.history_outlined),
+                  selectedIcon: Icon(Icons.history_rounded),
+                  label: '기록',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.settings_outlined),
+                  selectedIcon: Icon(Icons.settings_rounded),
+                  label: '설정',
+                ),
+              ],
+            ),
     );
   }
 
@@ -213,7 +223,8 @@ class _ParkingApplicationState extends State<ParkingApplication>
       );
     }
 
-    final parkedVehicle = selectedVehicle?.state == VehicleState.parked
+    final parkedVehicle = selectedVehicle?.state == VehicleState.parked &&
+            selectedVehicle?.id != _dismissedCompletionVehicleId
         ? selectedVehicle
         : null;
     if (parkedVehicle != null) {
@@ -224,6 +235,12 @@ class _ParkingApplicationState extends State<ParkingApplication>
         isSubmitting: _session.isSubmitting,
         onRefresh: _refresh,
         onRetrieval: () => unawaited(_requestRetrieval(parkedVehicle)),
+        onHome: () {
+          setState(() {
+            _dismissedCompletionVehicleId = parkedVehicle.id;
+            _selectedTab = ParkingTab.home;
+          });
+        },
       );
     }
 
@@ -265,6 +282,9 @@ class _ParkingApplicationState extends State<ParkingApplication>
   void _selectVehicle(String vehicleId) {
     setState(() {
       _selectedVehicleId = vehicleId;
+      // Selecting a vehicle is an explicit request to reopen its current
+      // state, including a completion screen dismissed with "홈으로".
+      _dismissedCompletionVehicleId = null;
       _expectedMinutes.putIfAbsent(vehicleId, () => 120);
     });
   }
@@ -289,9 +309,8 @@ class _ParkingApplicationState extends State<ParkingApplication>
     try {
       await _session.requestParking(
         vehicleId: vehicle.id,
-        expectedMinutes: _expectedMinutes[vehicle.id] ??
-            vehicle.expectedMinutes ??
-            120,
+        expectedMinutes:
+            _expectedMinutes[vehicle.id] ?? vehicle.expectedMinutes ?? 120,
       );
       _showMessage('${vehicle.vehicleNumber} 주차 요청을 접수했습니다.');
     } catch (error) {
@@ -310,8 +329,7 @@ class _ParkingApplicationState extends State<ParkingApplication>
 
   Future<void> _registerVehicle() async {
     FocusManager.instance.primaryFocus?.unfocus();
-    final vehicleNumber =
-        _registrationController.text.trim().toUpperCase();
+    final vehicleNumber = _registrationController.text.trim().toUpperCase();
     if (vehicleNumber.isEmpty || vehicleNumber.length > 32) {
       _showMessage('차량번호를 1~32자로 입력해 주세요.', isWarning: true);
       return;
@@ -340,12 +358,16 @@ class _ParkingApplicationState extends State<ParkingApplication>
     if (!mounted) {
       return;
     }
+    final scheme = Theme.of(context).colorScheme;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text(message),
-          backgroundColor: isWarning ? SnapColors.warning : null,
+          content: Text(
+            message,
+            style: isWarning ? TextStyle(color: scheme.onError) : null,
+          ),
+          backgroundColor: isWarning ? scheme.error : null,
         ),
       );
   }
@@ -383,9 +405,8 @@ CustomerVehicle? _activeVehicle(
   List<CustomerVehicle> vehicles,
   ParkingSnapshot snapshot,
 ) {
-  final jobVehicle = _jobStateIsActive(snapshot.job.state)
-      ? snapshot.job.vehicleId
-      : null;
+  final jobVehicle =
+      _jobStateIsActive(snapshot.job.state) ? snapshot.job.vehicleId : null;
   if (jobVehicle != null) {
     final match =
         _firstWhereOrNull(vehicles, (vehicle) => vehicle.id == jobVehicle);
@@ -398,7 +419,8 @@ CustomerVehicle? _activeVehicle(
       VehicleState.parkingRequested ||
       VehicleState.parkingInProgress ||
       VehicleState.retrievalRequested ||
-      VehicleState.retrieving => true,
+      VehicleState.retrieving =>
+        true,
       _ => false,
     };
   });
@@ -422,7 +444,8 @@ bool _jobStateIsActive(JobState state) {
     JobState.lifting ||
     JobState.movingToSlot ||
     JobState.retrieving ||
-    JobState.returning => true,
+    JobState.returning =>
+      true,
     _ => false,
   };
 }
