@@ -2,6 +2,8 @@
 
 한 Flutter 코드베이스로 iOS와 Android를 지원하는 S.N.A.P 고객용 앱이다. 앱은 Raspberry Pi의 FastAPI Gateway에만 연결하며 Arduino, 센서, 모터를 직접 제어하지 않는다.
 
+Flutter, Dart, Android, iOS의 관계와 Flutter의 기능·역할이 낯선 팀원은 [처음 배우는 모바일 앱 기술](../docs/mobile-flutter-beginner-guide.md)을 먼저 읽는다.
+
 ## 구현 범위
 
 - `GET /health`, `GET /v1/parking-lots/{lotId}/snapshot`

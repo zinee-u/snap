@@ -2,6 +2,8 @@
 
 이 문서는 앱 개발 경험이 없는 Windows 10·11 팀원이 **실제 Raspberry Pi에서 실행 중인 S.N.A.P Gateway**에 Galaxy 또는 iPhone 앱을 연결해 화면과 실시간 상태를 확인하는 절차다. QEMU나 PC의 `localhost`는 사용하지 않는다.
 
+Flutter, APK, TestFlight 같은 용어가 낯설다면 [처음 배우는 모바일 앱 기술](../mobile-flutter-beginner-guide.md)을 먼저 읽는다.
+
 > 이 문서에서 `PI_IP`는 **Raspberry Pi의 Wi-Fi 또는 유선 LAN 주소**를 뜻한다. 휴대폰 IP나 Windows PC IP가 아니다. 실제 숫자 주소를 찾은 뒤 `PI_IP`라고 적힌 곳에 대신 입력한다.
 
 ## 1. 내 상황에 맞는 방법

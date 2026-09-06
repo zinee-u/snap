@@ -77,6 +77,7 @@ flutter test
 
 상세 사용법은 다음 문서를 참고한다.
 
+- [처음 배우는 모바일 앱 기술: Flutter·Android·iOS](docs/mobile-flutter-beginner-guide.md)
 - [Windows 팀원용 Galaxy·iPhone 실기기 확인](docs/manual/windows-mobile-app-device-check.md)
 - [Web Mock 사용법](web-mock/README.md)
 - [Flutter 모바일 클라이언트](mobile/README.md)
