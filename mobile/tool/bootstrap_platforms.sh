@@ -51,6 +51,7 @@ cp "$generated_dir/.metadata" "$project_dir/.metadata"
 (
   cd "$project_dir"
   flutter pub get
+  dart run tool/generate_app_icons.dart
   if [ "$network_option" = "--allow-insecure-local-http" ]; then
     dart run tool/configure_local_network.dart --allow-insecure-local-http
   else

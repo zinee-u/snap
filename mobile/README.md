@@ -24,7 +24,18 @@ Flutter, Dart, Android, iOS의 관계와 Flutter의 기능·역할이 낯선 팀
 
 Gateway가 주차면을 자동 배정하므로 앱의 주차면 도식은 선택 입력이 아니라 실시간 현황과 배정 결과를 표시한다. Light/Dark 화면의 기준은 `assets/storyboard/tesla-theme/`이고, 여기서 분리·재제작한 투명 런타임 자산은 `assets/images/`에 있다. 전체 스크린샷을 배경으로 사용하지 않으므로 차량·주차면·로봇 위치·진행률은 실제 Gateway 데이터에 맞춰 계속 갱신된다.
 
-외부 패키지 없이 Flutter/Dart SDK만 사용한다. 저장소에 포함된 `android/`, `ios/` 러너는 Flutter 3.47.2 Stable 템플릿으로 생성했다.
+주차면 배치는 웹과 동일하게 화면 위에서부터 `6 5 / 4 3 / 2 1`이다. `ParkingMapLayout`의 배치를 주차면 표시와 경로 목적지가 함께 사용하며, Gateway의 주차면 ID는 변경하지 않는다. 초기 스토리보드에 남은 번호와 달리 최신 배치는 [프로젝트 README의 앱 미리보기](../README.md)를 따른다.
+
+앱 실행 코드는 외부 패키지 없이 Flutter/Dart SDK만 사용한다. 개발 도구로는 `flutter_launcher_icons`를 사용해 Android·iOS 설치 아이콘을 생성한다. 저장소에 포함된 `android/`, `ios/` 러너는 Flutter 3.47.2 Stable 템플릿으로 생성했다.
+
+설치 아이콘의 원본은 [`assets/app_icons/snap-app-dark.png`](assets/app_icons/snap-app-dark.png)이며, Light/Dark 모드에서 공통으로 사용한다. 원본을 변경한 뒤에는 `mobile` 디렉터리에서 다음 명령으로 각 플랫폼 크기의 아이콘을 재생성하고 앱을 다시 빌드·설치한다. 설정은 [`flutter_launcher_icons.yaml`](flutter_launcher_icons.yaml)에 있다. 생성된 Android `mipmap-*/ic_launcher.png`와 iOS `AppIcon.appiconset` 파일도 함께 커밋한다.
+
+```text
+flutter pub get
+dart run tool/generate_app_icons.dart
+```
+
+재생성 도구는 기존 `AppIcon` 참조와 Xcode 빌드·서명 설정을 보존한다. `flutter_launcher_icons`를 직접 실행하면 무관한 Xcode 설정까지 바뀔 수 있으므로 위 래퍼 명령을 사용한다.
 
 현재 Gateway 계약에는 `clientRequestId`나 Idempotency-Key가 없으므로 네트워크 재시도까지 포함한 종단 간 중복 방지는 아직 제공하지 않는다.
 
