@@ -16,7 +16,7 @@ usage() {
 사용법: tools/qemu/verify.sh [--write-flow]
 
 기본 검증은 health, 주차장 snapshot, WebSocket 최초 snapshot을 읽기 전용으로 확인합니다.
---write-flow는 pi-simulator 모드에서만 주차 -> 확정 -> 출차 상태 변경까지 검증합니다.
+--write-flow는 pi-simulator 계열 모드에서만 차량 2대 등록 -> 연속 입차 -> 독립 출차까지 검증합니다.
 EOF
 }
 

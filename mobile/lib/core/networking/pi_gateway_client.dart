@@ -66,10 +66,59 @@ class PiGatewayClient {
     );
   }
 
+  Future<List<CustomerVehicle>> fetchVehicles({
+    required String customerId,
+  }) async {
+    final encodedCustomerId = Uri.encodeComponent(customerId);
+    final path = '/v1/customers/$encodedCustomerId/vehicles';
+    final payload = await _request('GET', path);
+    return _parseContract('차량 목록', _endpoint(path), () {
+      final envelope = asStringMap(payload);
+      final responseCustomerId =
+          (envelope['customerId'] ?? envelope['customer_id'])?.toString();
+      if (responseCustomerId != null && responseCustomerId != customerId) {
+        throw FormatException(
+          '차량 목록 customerId가 다릅니다: '
+          'expected=$customerId actual=$responseCustomerId',
+        );
+      }
+      final rawVehicles = payload is List<Object?>
+          ? payload
+          : envelope['vehicles'] ?? envelope['data'];
+      if (rawVehicles is! List<Object?>) {
+        throw const FormatException('차량 목록 응답에 vehicles 배열이 없습니다.');
+      }
+      return rawVehicles.map((value) {
+        if (value is! Map<Object?, Object?>) {
+          throw const FormatException('각 차량은 JSON object여야 합니다.');
+        }
+        return CustomerVehicle.fromJson(asStringMap(value));
+      }).toList(growable: false);
+    });
+  }
+
+  Future<CustomerVehicle> registerVehicle({
+    required String customerId,
+    required String vehicleNumber,
+  }) async {
+    final encodedCustomerId = Uri.encodeComponent(customerId);
+    final path = '/v1/customers/$encodedCustomerId/vehicles';
+    final payload = await _request(
+      'POST',
+      path,
+      body: <String, Object?>{'vehicleNumber': vehicleNumber},
+    );
+    return _parseContract(
+      '차량 등록',
+      _endpoint(path),
+      () => CustomerVehicle.fromPayload(payload),
+    );
+  }
+
   Future<GatewayCommandResult> requestParking({
+    required String customerId,
     required String vehicleId,
     required int expectedMinutes,
-    required String preference,
     String lotId = 'demo-01',
     ParkingSnapshot? fallback,
   }) async {
@@ -77,9 +126,9 @@ class PiGatewayClient {
       'POST',
       '/v1/parking-requests',
       body: <String, Object?>{
+        'customerId': customerId,
         'vehicleId': vehicleId,
         'expectedMinutes': expectedMinutes,
-        'preference': preference,
       },
     );
     return _parseCommandResult(
@@ -117,6 +166,7 @@ class PiGatewayClient {
   }
 
   Future<GatewayCommandResult> requestRetrieval({
+    required String customerId,
     required String vehicleId,
     String lotId = 'demo-01',
     ParkingSnapshot? fallback,
@@ -124,7 +174,10 @@ class PiGatewayClient {
     final payload = await _request(
       'POST',
       '/v1/retrieval-requests',
-      body: <String, Object?>{'vehicleId': vehicleId},
+      body: <String, Object?>{
+        'customerId': customerId,
+        'vehicleId': vehicleId,
+      },
     );
     return _parseCommandResult(
       payload,
@@ -143,7 +196,8 @@ class PiGatewayClient {
   }) async {
     final uri = _endpoint(path);
     try {
-      final request = await _httpClient.openUrl(method, uri).timeout(requestTimeout);
+      final request =
+          await _httpClient.openUrl(method, uri).timeout(requestTimeout);
       request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
       if (body != null) {
         request.headers.contentType = ContentType.json;
@@ -162,7 +216,8 @@ class PiGatewayClient {
       if (response.statusCode < 200 || response.statusCode >= 300) {
         final error = asStringMap(payload);
         throw GatewayException(
-          (error['detail'] ?? error['message'] ?? 'Gateway 요청이 실패했습니다.').toString(),
+          (error['detail'] ?? error['message'] ?? 'Gateway 요청이 실패했습니다.')
+              .toString(),
           statusCode: response.statusCode,
           uri: uri,
         );
@@ -171,13 +226,25 @@ class PiGatewayClient {
     } on GatewayException {
       rethrow;
     } on TimeoutException catch (error) {
-      throw GatewayException('Gateway 응답 시간이 초과됐습니다.', uri: uri, cause: error);
+      throw GatewayException(
+        'Gateway 응답 시간이 초과됐습니다.',
+        uri: uri,
+        cause: error,
+      );
     } on SocketException catch (error) {
       throw GatewayException('Gateway에 연결할 수 없습니다.', uri: uri, cause: error);
     } on HandshakeException catch (error) {
-      throw GatewayException('Gateway TLS 연결에 실패했습니다.', uri: uri, cause: error);
+      throw GatewayException(
+        'Gateway TLS 연결에 실패했습니다.',
+        uri: uri,
+        cause: error,
+      );
     } on HttpException catch (error) {
-      throw GatewayException('Gateway HTTP 통신에 실패했습니다.', uri: uri, cause: error);
+      throw GatewayException(
+        'Gateway HTTP 통신에 실패했습니다.',
+        uri: uri,
+        cause: error,
+      );
     }
   }
 
@@ -185,7 +252,11 @@ class PiGatewayClient {
     try {
       return jsonDecode(value);
     } on FormatException catch (error) {
-      throw GatewayException('Gateway가 올바른 JSON을 반환하지 않았습니다.', uri: uri, cause: error);
+      throw GatewayException(
+        'Gateway가 올바른 JSON을 반환하지 않았습니다.',
+        uri: uri,
+        cause: error,
+      );
     }
   }
 

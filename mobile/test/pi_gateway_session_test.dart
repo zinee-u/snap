@@ -11,12 +11,19 @@ void main() {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final sockets = <WebSocket>[];
     var snapshotCalls = 0;
+    var vehicleCalls = 0;
     var socketConnections = 0;
     final requests = server.listen((request) async {
       if (request.uri.path == '/v1/parking-lots/demo-01/snapshot') {
         snapshotCalls += 1;
         request.response.headers.contentType = ContentType.json;
         request.response.write(jsonEncode(_snapshot(snapshotCalls)));
+        await request.response.close();
+      } else if (request.uri.path ==
+          '/v1/customers/demo-customer/vehicles') {
+        vehicleCalls += 1;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode(_vehicles()));
         await request.response.close();
       } else if (request.uri.path == '/v1/events') {
         socketConnections += 1;
@@ -44,12 +51,15 @@ void main() {
       () => session.connectionState == GatewayConnectionState.connected,
     );
     final callsBeforeDisconnect = snapshotCalls;
+    final vehicleCallsBeforeDisconnect = vehicleCalls;
     await sockets.first.close();
     await _waitUntil(() =>
         socketConnections >= 2 &&
         session.connectionState == GatewayConnectionState.connected);
 
     expect(snapshotCalls, greaterThan(callsBeforeDisconnect));
+    expect(vehicleCalls, greaterThan(vehicleCallsBeforeDisconnect));
+    expect(session.vehicles.single.vehicleNumber, '12가3456');
 
     session.dispose();
     for (final socket in sockets) {
@@ -68,6 +78,11 @@ void main() {
       if (request.uri.path == '/v1/parking-lots/demo-01/snapshot') {
         request.response.headers.contentType = ContentType.json;
         request.response.write(jsonEncode(_snapshot(restRevision)));
+        await request.response.close();
+      } else if (request.uri.path ==
+          '/v1/customers/demo-customer/vehicles') {
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode(_vehicles()));
         await request.response.close();
       } else if (request.uri.path == '/v1/events') {
         final socket = await WebSocketTransformer.upgrade(request);
@@ -124,6 +139,11 @@ void main() {
           request.response.write(jsonEncode(_snapshot(snapshotCalls)));
         }
         await request.response.close();
+      } else if (request.uri.path ==
+          '/v1/customers/demo-customer/vehicles') {
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode(_vehicles()));
+        await request.response.close();
       } else if (request.uri.path == '/v1/events') {
         final socket = await WebSocketTransformer.upgrade(request);
         sockets.add(socket);
@@ -169,6 +189,60 @@ void main() {
     expect(session.lastError, isNull);
   });
 
+  test('a WebSocket snapshot refreshes the customer vehicle list', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final sockets = <WebSocket>[];
+    var vehicleState = 'READY_TO_PARK';
+    var revision = 1;
+    final requests = server.listen((request) async {
+      if (request.uri.path == '/v1/parking-lots/demo-01/snapshot') {
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode(_snapshot(revision)));
+        await request.response.close();
+      } else if (request.uri.path ==
+          '/v1/customers/demo-customer/vehicles') {
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode(_vehicles(state: vehicleState)));
+        await request.response.close();
+      } else if (request.uri.path == '/v1/events') {
+        final socket = await WebSocketTransformer.upgrade(request);
+        sockets.add(socket);
+      } else {
+        request.response.statusCode = HttpStatus.notFound;
+        await request.response.close();
+      }
+    });
+    final session = PiGatewaySession(
+      client: PiGatewayClient(
+        baseUri: Uri.parse('http://${server.address.host}:${server.port}'),
+      ),
+    );
+
+    await session.start();
+    await _waitUntil(
+      () => session.connectionState == GatewayConnectionState.connected,
+    );
+    expect(session.vehicles.single.state.canRequestParking, isTrue);
+
+    vehicleState = 'PARKED';
+    revision = 2;
+    sockets.single.add(jsonEncode(<String, Object?>{
+      'type': 'PARKED',
+      'message': 'vehicle updated',
+      'snapshot': _snapshot(revision),
+    }));
+    await _waitUntil(
+      () => session.vehicles.single.state.canRequestRetrieval,
+    );
+
+    session.dispose();
+    for (final socket in sockets) {
+      await socket.close();
+    }
+    await requests.cancel();
+    await server.close(force: true);
+  });
+
   test('rejects a second command while the first POST is pending', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final releaseResponse = Completer<void>();
@@ -184,6 +258,10 @@ void main() {
           'requestId': 'REQ-ONE',
           'snapshot': _snapshot(1),
         }));
+      } else if (request.method == 'GET' &&
+          request.uri.path == '/v1/customers/demo-customer/vehicles') {
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode(_vehicles()));
       } else {
         request.response.statusCode = HttpStatus.notFound;
       }
@@ -196,16 +274,14 @@ void main() {
     );
 
     final first = session.requestParking(
-      vehicleId: 'SNAP-01',
+      vehicleId: 'VEH-1',
       expectedMinutes: 120,
-      preference: 'AUTO',
     );
     await _waitUntil(() => parkingPosts == 1);
     await expectLater(
       session.requestParking(
-        vehicleId: 'SNAP-01',
+        vehicleId: 'VEH-1',
         expectedMinutes: 120,
-        preference: 'AUTO',
       ),
       throwsA(isA<DuplicateSubmissionException>()),
     );
@@ -236,6 +312,11 @@ void main() {
           } else {
             request.response.write(jsonEncode(_snapshot(1)));
           }
+          await request.response.close();
+        } else if (request.uri.path ==
+            '/v1/customers/demo-customer/vehicles') {
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(jsonEncode(_vehicles()));
           await request.response.close();
         } else if (request.uri.path == '/v1/events') {
           final socket = await WebSocketTransformer.upgrade(request);
@@ -282,7 +363,7 @@ Map<String, Object?> _snapshot(int revision) => <String, Object?>{
       'lotId': 'demo-01',
       'updatedAt': '2026-08-25T12:00:0${revision.clamp(0, 9)}Z',
       'slots': <Object?>[
-        <String, Object?>{'id': 'A1', 'state': 'AVAILABLE'},
+        <String, Object?>{'id': '1', 'state': 'AVAILABLE'},
       ],
       'robot': <String, Object?>{
         'state': '대기 중',
@@ -290,6 +371,19 @@ Map<String, Object?> _snapshot(int revision) => <String, Object?>{
         'positionPct': 18,
       },
       'job': <String, Object?>{'state': 'IDLE', 'message': 'ready'},
+    };
+
+Map<String, Object?> _vehicles({String state = 'READY_TO_PARK'}) =>
+    <String, Object?>{
+      'customerId': 'demo-customer',
+      'vehicles': <Object?>[
+        <String, Object?>{
+          'vehicleId': 'VEH-1',
+          'vehicleNumber': '12가3456',
+          'state': state,
+          if (state == 'PARKED') 'slotId': '4',
+        },
+      ],
     };
 
 Future<void> _waitUntil(bool Function() condition) async {

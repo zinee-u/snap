@@ -1,14 +1,28 @@
-# S.N.A.P 웹 요구사항 #2 구현 및 추적성 계획 (REQ-260829)
+# S.N.A.P 웹 요구사항 #2 구현 및 추적성 기록 (REQ-260829)
 
 ## 문서 정보
 
 | 항목 | 내용 |
 |---|---|
 | 문서 목적 | 웹 요구사항을 현재 코드의 변경 지점과 검증 항목까지 추적 가능하게 연결 |
-| 요구사항 원문 | [`docs/req/260829-inoutput.md`](../req/260829-inoutput.md) |
+| 요구사항 원문 | 로컬 비공개 문서 `docs/.requirements/260829-inoutput.md` |
 | 대상 구성요소 | `web-mock`, `pi-bridge`, 공유 API 계약 및 `mobile` 호환 계층 |
-| 문서 상태 | 구현 제안 — 미확정 항목 승인 후 기준선으로 전환 |
+| 문서 상태 | 소프트웨어 기준선 구현 완료 — Flutter SDK 실행·QEMU·실장비 HIL은 후속 검증 |
 | 작성 기준일 | 2026-08-29 |
+
+## 0. 구현 결과 요약
+
+2026-08-29 기준으로 Web Mock, Flutter 고객 앱 소스, Pi Gateway의 요구 기능을 구현했다.
+
+- 고객별 차량 등록·목록 API와 차량별 상태·주차 위치
+- 한 고객의 복수 차량 및 차량 간 독립 입·출차
+- `60/120/180/240`분 입력과 Pi의 시간 기반 슬롯 `1~6` 배정
+- 단일 `activeJob`, 작업 완료 후 `STANDBY` 복귀, 주차 차량의 `PARKED` 유지
+- 지정 만차 오류, 공개 Snapshot의 차량번호 비노출
+- Mega 프레임 엄격 파서와 Uno 슬롯별 경로·상태 Codec/Transport 경계
+- 고객 화면의 배정 기준·배터리·리프트 제거와 통로 기반 경로 표시
+
+검증은 Gateway 단위/API 테스트 26건, Web lint/build, REST·WebSocket 두 차량 통합 시나리오까지 통과했다. 현재 개발 머신에 Flutter/Dart SDK가 없어 Flutter 테스트와 analyze는 실행하지 못했으며, QEMU와 실제 Mega/Uno HIL도 별도 장비 검증으로 남아 있다. 상태 저장은 현재 프로세스 메모리 기반이며 재시작 복구, 사용자 인증, 실장비의 baud/ACK/timeout 확정은 원문 기능 범위 밖의 운영 후속 항목이다.
 
 ## 1. 결론
 
@@ -42,20 +56,20 @@ Web은 Raspberry Pi API만 호출한다. 센서 판정, 주차면 배정, 명령
 
 | 결정 ID | 상태 | 권장 결정 | 근거·영향 |
 |---|---|---|---|
-| DEC-260829-01 | 제안 | 예상시간은 원문의 정형 명세인 `1시간/2시간/3시간/4시간 이상`을 기준으로 한다. | 원문 상단의 `30분/1시간/2시간/4시간`과 충돌한다. |
-| DEC-260829-02 | 제안 | 기존 React/Next 호환 Web과 FastAPI Gateway를 유지한다. | 현재 REST·WebSocket 및 Flutter 계약을 재사용할 수 있다. |
-| DEC-260829-03 | 제안 | 한 대의 로봇은 작업을 직렬 실행하고 작업 중 새 실행 요청은 거절한다. 완료되어 주차 중인 다른 차량은 다음 입차를 막지 않는다. | 사용자 상태 독립성과 단일 로봇 물리 제약을 동시에 만족한다. |
-| DEC-260829-04 | 제안 | 전체 차량번호와 내부 UUID를 저장하고 뒤 4자리는 검색·표시 보조값으로만 사용한다. | 뒤 4자리만으로는 차량을 고유하게 식별할 수 없다. |
-| DEC-260829-05 | 미확정 | 요구사항의 슬롯 `1~6`과 기존 API의 `A1~B3` 간 변환표를 확정한다. | Web, Pi, Flutter, 실제 배선이 같은 슬롯을 가리켜야 한다. |
-| DEC-260829-06 | 제안 | 3시간은 거리 상위 그룹에서 로봇 이동거리를 최소화하고, 4시간 이상은 가장 먼 슬롯을 우선한다. | 원문의 “먼”과 “가장 먼”을 구분하면서 에너지 목적을 반영한다. |
+| DEC-260829-01 | 확정·구현 | 예상시간은 원문의 정형 명세인 `1시간/2시간/3시간/4시간 이상`을 기준으로 한다. | 원문 상단의 `30분/1시간/2시간/4시간`과 충돌한다. |
+| DEC-260829-02 | 확정·구현 | 기존 React/Next 호환 Web과 FastAPI Gateway를 유지한다. | 현재 REST·WebSocket 및 Flutter 계약을 재사용할 수 있다. |
+| DEC-260829-03 | 확정·구현 | 한 대의 로봇은 작업을 직렬 실행하고 작업 중 새 실행 요청은 거절한다. 완료되어 주차 중인 다른 차량은 다음 입차를 막지 않는다. | 사용자 상태 독립성과 단일 로봇 물리 제약을 동시에 만족한다. |
+| DEC-260829-04 | 확정·구현 | 전체 차량번호와 내부 UUID를 분리하고 공개 Snapshot에는 차량번호를 넣지 않는다. | 뒤 4자리만으로는 차량을 고유하게 식별할 수 없다. |
+| DEC-260829-05 | 확정·구현 | 정식 슬롯 ID는 `1~6`으로 통일하고 기존 `A1~B3` 입력만 각각 `1~6`으로 호환 변환한다. | Web, Pi, Flutter, 실제 배선이 같은 슬롯을 가리켜야 한다. |
+| DEC-260829-06 | 확정·구현 | 3시간은 먼 그룹 `4→5→6`, 4시간 이상은 `6→1` 순으로 가장 먼 빈자리부터 배정한다. | 원문의 “먼”과 “가장 먼”을 구분하면서 에너지 목적을 반영한다. |
 | DEC-260829-07 | 미확정 | Uno가 실제 위치를 전송하지 않으면 Web에는 위치를 `추정`으로 표시한다. | 현재 상태 문자열만으로 정확한 좌표를 알 수 없다. |
-| DEC-260829-08 | 미확정 | Uno의 최신 프로토콜, baud rate, 줄바꿈, ACK, timeout, 출차·복귀 경로를 확정한다. | 새 요구사항과 기존 PoC 문서의 응답 코드가 서로 다르다. |
+| DEC-260829-08 | 부분 구현 | 요구된 슬롯별 경로 6종과 상태 Codec/Transport를 구현했다. baud rate, 줄바꿈, ACK, timeout, 출차·복귀 경로는 실장비 HIL 전에 확정한다. | 새 요구사항과 기존 PoC 문서의 응답 코드가 서로 다르다. |
 
 ## 4. 요구사항 추적성 매트릭스
 
 ### 4.1 사용자·차량
 
-| 요구사항 ID | 원문 위치 | 요구사항 | 현재 차이 | 구현 대상 | 검증 ID |
+| 요구사항 ID | 원문 위치 | 요구사항 | 구현 전 차이 | 구현 대상 | 검증 ID |
 |---|---:|---|---|---|---|
 | REQ-260829-VEH-01 | L8~10, L45~46 | 사용자 화면에 차량 ID 대신 차량번호 표시 | Web과 Flutter가 `차량 ID`를 표시 | `Vehicle.vehicleNumber` 추가, UI 라벨·검증 문구 변경 | AT-UI-01, AT-API-01 |
 | REQ-260829-VEH-02 | L18~19, L39~40, L104~107 | 한 사용자가 여러 차량 등록 | 단일 `vehicleId` 상태만 존재 | 사용자별 `Vehicle[]`, 차량 등록 API, 차량 목록 UI | AT-FLOW-02 |
@@ -65,7 +79,7 @@ Web은 Raspberry Pi API만 호출한다. 센서 판정, 주차면 배정, 명령
 
 ### 4.2 시간·배정·주차면
 
-| 요구사항 ID | 원문 위치 | 요구사항 | 현재 차이 | 구현 대상 | 검증 ID |
+| 요구사항 ID | 원문 위치 | 요구사항 | 구현 전 차이 | 구현 대상 | 검증 ID |
 |---|---:|---|---|---|---|
 | REQ-260829-TIME-01 | L203~212 | `1/2/3/4시간 이상` 중 하나 선택 | 현재 `30/60/120/240분` | Web 선택지를 `60/120/180/240+` 버킷으로 변경 | AT-UI-02, AT-API-02 |
 | REQ-260829-ALLOC-01 | L214~218, L222~235 | Web은 시간을 보내고 Pi가 슬롯 선택 | 현재 Pi가 시간을 버리고 사용자 선호로 선택 | `SlotAllocator`와 서버 측 원자 예약 | AT-ALLOC-01~05 |
@@ -75,7 +89,7 @@ Web은 Raspberry Pi API만 호출한다. 센서 판정, 주차면 배정, 명령
 
 ### 4.3 로봇·화면
 
-| 요구사항 ID | 원문 위치 | 요구사항 | 현재 차이 | 구현 대상 | 검증 ID |
+| 요구사항 ID | 원문 위치 | 요구사항 | 구현 전 차이 | 구현 대상 | 검증 ID |
 |---|---:|---|---|---|---|
 | REQ-260829-ROB-01 | L30~34, L239~254 | 배정 슬롯, 로봇 위치와 동작 상태 표시 | job 상태로 위치 비율을 임의 추정 | `robot.actionState`, `positionNode`, 사용자용 상태 매핑 | AT-HW-UNO-02, AT-UI-05 |
 | REQ-260829-ROB-02 | L47~49, L97~99 | 작업 완료 후 입·출구 사이 대기 위치로 복귀 | 주차 완료가 `PARKED`에서 끝남 | `RETURNING_TO_STANDBY → IDLE`, `activeJob=null` | AT-FLOW-01 |
@@ -85,7 +99,7 @@ Web은 Raspberry Pi API만 호출한다. 센서 판정, 주차면 배정, 명령
 
 ### 4.4 장치 통신
 
-| 요구사항 ID | 원문 위치 | 요구사항 | 현재 차이 | 구현 대상 | 검증 ID |
+| 요구사항 ID | 원문 위치 | 요구사항 | 구현 전 차이 | 구현 대상 | 검증 ID |
 |---|---:|---|---|---|---|
 | REQ-260829-HW-01 | L146~155 | Mega가 `1:EMPTY,...` 형식으로 상태 전송 | Bluetooth 수신·파서 없음 | Mega serial-over-Bluetooth Reader와 Frame Parser | AT-HW-MEGA-01~04 |
 | REQ-260829-HW-02 | L159~173 | Pi가 슬롯별 경로 문자열을 Uno로 전송 | UART Writer 없음 | 경로 테이블과 `RobotAdapter.executePath` | AT-HW-UNO-01 |
@@ -269,9 +283,8 @@ ParkingSession 1 ── N Job
 | `pi-bridge/app/main.py` | DTO, 오류 코드, 사용자·차량 API, Snapshot 확장 |
 | `pi-bridge/app/domain.py` | 차량·슬롯·로봇·작업 모델과 enum 신규 추가 |
 | `pi-bridge/app/allocator.py` | 시간 기반 슬롯 배정 신규 추가 |
-| `pi-bridge/app/state_store.py` | SQLite 저장과 원자 예약 신규 추가 |
-| `pi-bridge/app/adapters/occupancy.py` | Mega Bluetooth Adapter 신규 추가 |
-| `pi-bridge/app/adapters/robot.py` | Uno UART Adapter 신규 추가 |
+| `pi-bridge/app/adapters/occupancy.py` | Mega 전송 경계와 엄격 프레임 파서 신규 추가 |
+| `pi-bridge/app/adapters/robot.py` | Uno 경로·상태 Codec, 전송 Adapter와 Simulator 신규 추가 |
 
 ### 6.2 Web
 
@@ -279,7 +292,6 @@ ParkingSession 1 ── N Job
 |---|---|
 | `web-mock/app/pi-client.ts` | 확장 Snapshot, 차량 모델, 오류 코드, API 함수 |
 | `web-mock/app/page.tsx` | 화면 조합과 상태별 CTA |
-| `web-mock/app/parking-geometry.ts` | 슬롯·통로·대기 위치 topology 신규 추가 |
 | `web-mock/app/globals.css` | Lift Zone 제거와 차량 목록·경로 스타일 |
 | `web-mock/scripts/verify-pi-gateway.mjs` | 두 차량 입·출차 흐름으로 검증 확장 |
 
@@ -348,7 +360,7 @@ API가 확장되면 다음 모바일 파일도 회귀 확인한다.
 5. QEMU ARM64 write-flow 검증
 6. 실제 Mega·Uno 장비 HIL을 릴리스 게이트로 실행
 
-현재 기준선에서는 Web lint와 Gateway Controller 테스트 2건이 통과했다. Web UI 자동 테스트와 FastAPI HTTP 계층 테스트는 아직 없으며, 현재 로컬 환경에는 FastAPI와 Flutter/Dart 실행 환경이 준비되지 않아 전체 테스트는 미검증 상태다.
+현재 기준선에서는 Gateway 단위·API 테스트 26건, Python compileall, Web lint/build가 통과했다. 짧은 Simulator 지연으로 실행한 REST·WebSocket 통합 검증에서도 고객 차량 2대 등록, 1시간 차량 1번 배정, 4시간 이상 차량 6번 배정, 첫 차량 독립 출차, 두 번째 차량 `PARKED` 유지, 두 번째 차량 정리 출차, 최종 `activeJob=null`까지 통과했다. Flutter 소스는 정적 계약·구문 경계 검사를 마쳤지만 로컬에 Flutter/Dart SDK가 없어 `flutter test`와 `flutter analyze`는 실행하지 못했다. QEMU와 실제 Mega·Uno HIL은 릴리스 전 별도 검증 항목이다.
 
 ## 10. 완료 정의
 

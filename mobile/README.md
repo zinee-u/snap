@@ -1,18 +1,21 @@
 # S.N.A.P Flutter 모바일 클라이언트
 
-한 Flutter 코드베이스로 iOS와 Android를 지원하는 S.N.A.P 운전자용 앱이다. 앱은 Raspberry Pi의 FastAPI Gateway에만 연결하며 Arduino, 센서, 모터를 직접 제어하지 않는다.
+한 Flutter 코드베이스로 iOS와 Android를 지원하는 S.N.A.P 고객용 앱이다. 앱은 Raspberry Pi의 FastAPI Gateway에만 연결하며 Arduino, 센서, 모터를 직접 제어하지 않는다.
 
 ## 구현 범위
 
 - `GET /health`, `GET /v1/parking-lots/{lotId}/snapshot`
+- `GET/POST /v1/customers/{customerId}/vehicles` 고객별 복수 차량 조회·등록
 - `POST /v1/parking-requests`, `POST /v1/retrieval-requests`
 - `POST /v1/parking-requests/{requestId}/confirm`, `GET /v1/jobs/{jobId}` 클라이언트 계약
 - `WS /v1/events` 실시간 현황 반영
 - WebSocket 15초 ping으로 무응답 연결 감지, 단절 시 지수형 재연결, **매 재연결 전 REST Snapshot 재조회**
 - POST 응답의 `snapshot`과 WebSocket 이벤트의 `snapshot`을 같은 모델로 해석
+- Snapshot 이벤트마다 고객 차량 목록도 다시 조회해 차량별 상태·배정 주차면 동기화
 - 전송 중인 명령이 있으면 다음 명령을 거부해 클라이언트 동시 전송 방지
 - 앱이 포그라운드로 돌아오면 최신 Snapshot 복구
-- 슬롯·로봇·작업 현황, 발렛 주차·차량 호출 UI
+- 차량번호별 `1/2/3/4시간 이상` 입차 요청과 원터치 출차 요청 UI
+- 로봇 작업 중 물리 요청 비활성화, 만차 안내, 다른 차량 등록 UI
 
 외부 패키지 없이 Flutter/Dart SDK만 사용한다. 생성물인 `android/`, `ios/` 러너는 Flutter SDK가 설치된 환경에서 현재 Stable 템플릿으로 만든다.
 
@@ -57,22 +60,25 @@ flutter devices
 # iOS Simulator: 개발 PC의 localhost
 flutter run -d <ios-simulator-id> \
   --dart-define=PI_API_BASE_URL=http://127.0.0.1:8101 \
-  --dart-define=PI_LOT_ID=demo-01
+  --dart-define=PI_LOT_ID=demo-01 \
+  --dart-define=PI_CUSTOMER_ID=demo-customer
 
 # Android Emulator: 호스트 PC의 특별 주소
 flutter run -d <android-emulator-id> \
   --dart-define=PI_API_BASE_URL=http://10.0.2.2:8101 \
-  --dart-define=PI_LOT_ID=demo-01
+  --dart-define=PI_LOT_ID=demo-01 \
+  --dart-define=PI_CUSTOMER_ID=demo-customer
 
 # Android/iOS 실기기: 같은 Wi-Fi의 Raspberry Pi 주소 예시
 flutter run -d <physical-device-id> \
   --dart-define=PI_API_BASE_URL=http://192.168.0.50:8101 \
-  --dart-define=PI_LOT_ID=demo-01
+  --dart-define=PI_LOT_ID=demo-01 \
+  --dart-define=PI_CUSTOMER_ID=<로그인-고객-ID>
 ```
 
 꺾쇠 안의 값은 `flutter devices`에 표시된 실제 Device ID로 바꾼다.
 
-기본값은 `http://127.0.0.1:8101`, 주차장 ID는 `demo-01`이다. HTTP/HTTPS에 따라 WebSocket 주소는 각각 WS/WSS로 자동 변환된다.
+기본값은 `http://127.0.0.1:8101`, 주차장 ID는 `demo-01`, 고객 ID는 `demo-customer`다. 배포 앱에서는 로그인 계정의 고유 ID를 `PI_CUSTOMER_ID`로 주입해야 고객별 차량이 분리된다. HTTP/HTTPS에 따라 WebSocket 주소는 각각 WS/WSS로 자동 변환된다.
 
 ## 3. 로컬 Raspberry Pi의 HTTP/ws 허용
 
@@ -112,10 +118,12 @@ flutter build ios --release
 
 ```bash
 cd mobile
-dart run tool/gateway_smoke.dart --base-url=http://127.0.0.1:8101
+dart run tool/gateway_smoke.dart \
+  --base-url=http://127.0.0.1:8101 \
+  --customer-id=demo-customer
 ```
 
-성공 조건은 Health, REST Snapshot, WebSocket 첫 `SNAPSHOT` 이벤트가 모두 같은 `lotId`와 유효한 슬롯 목록을 반환하는 것이다. 발렛·출차 POST 전체 흐름 검증은 프로젝트의 Web Mock Gateway 검증 스크립트를 함께 사용한다.
+성공 조건은 Health, REST Snapshot, 고객 차량 목록, WebSocket 첫 `SNAPSHOT` 이벤트가 유효한 계약을 반환하는 것이다. 발렛·출차 POST 전체 흐름 검증은 프로젝트의 통합 검증 스크립트를 함께 사용한다.
 
 ## 5. 코드 구조
 

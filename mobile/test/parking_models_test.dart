@@ -6,9 +6,9 @@ void main() {
     'lotId': 'demo-01',
     'updatedAt': '2026-08-25T12:00:00Z',
     'slots': <Object?>[
-      <String, Object?>{'id': 'A1', 'state': 'AVAILABLE'},
+      <String, Object?>{'id': '1', 'state': 'AVAILABLE'},
       <String, Object?>{
-        'id': 'A2',
+        'id': '2',
         'state': 'OCCUPIED',
         'vehicleId': 'SNAP-88',
       },
@@ -22,7 +22,7 @@ void main() {
       'id': 'REQ-1',
       'state': 'MOVING_TO_SLOT',
       'vehicleId': 'SNAP-01',
-      'targetSlot': 'A1',
+      'targetSlot': '1',
       'reasonCode': 'AUTO_BALANCED',
       'message': '이동 중',
     },
@@ -45,7 +45,7 @@ void main() {
     });
 
     expect(result.requestId, 'REQ-1234');
-    expect(result.snapshot?.job.targetSlot, 'A1');
+    expect(result.snapshot?.job.targetSlot, '1');
   });
 
   test('parses a WebSocket event envelope', () {
@@ -64,7 +64,7 @@ void main() {
       'lot_id': 'demo-01',
       'updated_at': '2026-08-25T12:00:00Z',
       'slots': <Object?>[
-        <String, Object?>{'slot_id': 'B1', 'status': 'SENSOR_MISSING'},
+        <String, Object?>{'slot_id': 3, 'status': 'SENSOR_MISSING'},
       ],
       'robot': <String, Object?>{
         'battery_pct': 90,
@@ -72,11 +72,53 @@ void main() {
       },
       'activeJob': <String, Object?>{
         'state': 'EMERGENCY_STOP',
-        'target_slot': 'B1',
+        'target_slot': 3,
       },
     });
 
     expect(snapshot.slots.single.state, SlotState.unknown);
+    expect(snapshot.slots.single.id, '3');
     expect(snapshot.job.state, JobState.emergencyStop);
+  });
+
+  test('parses a customer vehicle without exposing its internal id as number', () {
+    final vehicle = CustomerVehicle.fromPayload(<String, Object?>{
+      'vehicle': <String, Object?>{
+        'id': 'VEH-1234',
+        'vehicleNumber': '12가3456',
+        'state': 'PARKED',
+        'slotId': '5',
+        'expectedMinutes': 240,
+      },
+    });
+
+    expect(vehicle.id, 'VEH-1234');
+    expect(vehicle.vehicleId, 'VEH-1234');
+    expect(vehicle.vehicleNumber, '12가3456');
+    expect(vehicle.state, VehicleState.parked);
+    expect(vehicle.slotId, '5');
+    expect(vehicle.expectedMinutes, 240);
+    expect(vehicle.state.canRequestRetrieval, isTrue);
+  });
+
+  test('accepts the Gateway vehicleId and READY_TO_PARK aliases', () {
+    final vehicle = CustomerVehicle.fromJson(<String, Object?>{
+      'vehicleId': 'VEH-ALIAS',
+      'vehicle_number': '34나5678',
+      'status': 'READY_TO_PARK',
+    });
+
+    expect(vehicle.id, 'VEH-ALIAS');
+    expect(vehicle.state.canRequestParking, isTrue);
+  });
+
+  test('recognizes active Gateway job states used to disable commands', () {
+    expect(JobState.fromWire('RUNNING'), JobState.running);
+    expect(
+      JobState.fromWire('RETURNING_TO_STANDBY'),
+      JobState.returning,
+    );
+    expect(JobState.running.isTerminal, isFalse);
+    expect(JobState.returning.isTerminal, isFalse);
   });
 }

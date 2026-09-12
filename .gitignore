@@ -2,6 +2,9 @@
 .codebase-memory/
 ports.md
 
+docs/.meetings/
+docs/.templates/
+docs/.requirements/
 **/.env
 **/.env.*
 !**/.env.example
