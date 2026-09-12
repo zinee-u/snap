@@ -13,6 +13,12 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: 0.14.4
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/images/robot-hero.png
+    - assets/images/car-hero.png
+    - assets/images/robot-top.png
+    - assets/images/car-top.png

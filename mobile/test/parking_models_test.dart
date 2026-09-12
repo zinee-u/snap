@@ -112,6 +112,43 @@ void main() {
     expect(vehicle.state.canRequestParking, isTrue);
   });
 
+  test('parses customer vehicle updatedAt aliases as UTC', () {
+    for (final field in <String>['updatedAt', 'updated_at']) {
+      final vehicle = CustomerVehicle.fromJson(<String, Object?>{
+        'vehicleId': 'VEH-TIME',
+        'vehicleNumber': '12가3456',
+        'state': 'PARKED',
+        field: '2026-08-25T21:18:00+09:00',
+      });
+
+      expect(vehicle.updatedAt, DateTime.utc(2026, 8, 25, 12, 18));
+      expect(vehicle.updatedAt?.isUtc, isTrue);
+      expect(
+        DateTime.parse(vehicle.toJson()['updatedAt']! as String),
+        DateTime.utc(2026, 8, 25, 12, 18),
+      );
+    }
+  });
+
+  test('keeps invalid or absent customer vehicle updatedAt nullable', () {
+    final base = <String, Object?>{
+      'vehicleId': 'VEH-TIME',
+      'vehicleNumber': '12가3456',
+      'state': 'PARKED',
+    };
+
+    final vehicleWithoutTime = CustomerVehicle.fromJson(base);
+    expect(vehicleWithoutTime.updatedAt, isNull);
+    expect(vehicleWithoutTime.toJson(), isNot(contains('updatedAt')));
+    expect(
+      CustomerVehicle.fromJson(<String, Object?>{
+        ...base,
+        'updatedAt': 'not-a-date',
+      }).updatedAt,
+      isNull,
+    );
+  });
+
   test('recognizes active Gateway job states used to disable commands', () {
     expect(JobState.fromWire('RUNNING'), JobState.running);
     expect(

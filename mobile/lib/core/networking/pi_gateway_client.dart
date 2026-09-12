@@ -205,10 +205,8 @@ class PiGatewayClient {
       }
 
       final response = await request.close().timeout(requestTimeout);
-      final responseBody = await response
-          .transform(utf8.decoder)
-          .join()
-          .timeout(requestTimeout);
+      final responseBody =
+          await response.transform(utf8.decoder).join().timeout(requestTimeout);
       final payload = responseBody.trim().isEmpty
           ? const <String, Object?>{}
           : _decodeJson(responseBody, uri);
@@ -297,13 +295,20 @@ class PiGatewayClient {
             ? baseUri.path.substring(0, baseUri.path.length - 1)
             : baseUri.path;
     final path = suffix.startsWith('/') ? suffix : '/$suffix';
-    return baseUri.replace(path: '$prefix$path', query: null, fragment: null);
+    return baseUri.replace(path: '$prefix$path');
   }
 
   static Uri _normalizedBaseUri(Uri value) {
     if (!value.hasAuthority || !{'http', 'https'}.contains(value.scheme)) {
       throw ArgumentError.value(value, 'baseUri', 'http 또는 https URI가 필요합니다.');
     }
-    return value.replace(query: null, fragment: null);
+    if (value.hasQuery || value.hasFragment) {
+      throw ArgumentError.value(
+        value,
+        'baseUri',
+        'query 또는 fragment가 없는 Gateway 기본 URI가 필요합니다.',
+      );
+    }
+    return value;
   }
 }

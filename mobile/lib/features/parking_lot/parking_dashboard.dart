@@ -1,3 +1,6 @@
+// DropdownButtonFormField.value remains necessary for Flutter 3.19 support.
+// ignore_for_file: deprecated_member_use
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -85,7 +88,8 @@ class _ParkingDashboardState extends State<ParkingDashboard>
         actions: <Widget>[
           IconButton(
             tooltip: '최신 현황 조회',
-            onPressed: _session.isSubmitting ? null : () => unawaited(_refresh()),
+            onPressed:
+                _session.isSubmitting ? null : () => unawaited(_refresh()),
             icon: const Icon(Icons.refresh),
           ),
           IconButton(
@@ -179,9 +183,8 @@ class _ParkingDashboardState extends State<ParkingDashboard>
     try {
       await _session.requestParking(
         vehicleId: vehicle.id,
-        expectedMinutes: _expectedMinutes[vehicle.id] ??
-            vehicle.expectedMinutes ??
-            60,
+        expectedMinutes:
+            _expectedMinutes[vehicle.id] ?? vehicle.expectedMinutes ?? 60,
       );
       _showMessage('${vehicle.vehicleNumber} 입차 요청을 접수했습니다.');
     } catch (error) {
@@ -257,7 +260,8 @@ class _ParkingDashboardState extends State<ParkingDashboard>
       JobState.lifting ||
       JobState.movingToSlot ||
       JobState.retrieving ||
-      JobState.returning => true,
+      JobState.returning =>
+        true,
       _ => false,
     };
   }
@@ -399,10 +403,10 @@ class _VehicleCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stateColor = _stateColor(vehicle.state);
-    final selectedMinutes = const <int>[60, 120, 180, 240]
-            .contains(expectedMinutes)
-        ? expectedMinutes
-        : 60;
+    final selectedMinutes =
+        const <int>[60, 120, 180, 240].contains(expectedMinutes)
+            ? expectedMinutes
+            : 60;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -491,7 +495,8 @@ class _VehicleCard extends StatelessWidget {
       VehicleState.parkingRequested ||
       VehicleState.parkingInProgress ||
       VehicleState.retrievalRequested ||
-      VehicleState.retrieving => Colors.orange,
+      VehicleState.retrieving =>
+        Colors.orange,
       VehicleState.error || VehicleState.unknown => Colors.red,
     };
   }
@@ -548,7 +553,8 @@ class _ConnectionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = switch (state) {
       GatewayConnectionState.connected => Colors.green,
-      GatewayConnectionState.connecting || GatewayConnectionState.reconnecting =>
+      GatewayConnectionState.connecting ||
+      GatewayConnectionState.reconnecting =>
         Colors.orange,
       GatewayConnectionState.disconnected => Colors.red,
     };
@@ -570,7 +576,8 @@ class _ConnectionCard extends StatelessWidget {
                 Container(
                   width: 10,
                   height: 10,
-                  decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                  decoration:
+                      BoxDecoration(color: color, shape: BoxShape.circle),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -604,12 +611,10 @@ class _Overview extends StatelessWidget {
     final available = snapshot.slots
         .where((slot) => slot.state == SlotState.available)
         .length;
-    final occupied = snapshot.slots
-        .where((slot) => slot.state == SlotState.occupied)
-        .length;
-    final reserved = snapshot.slots
-        .where((slot) => slot.state == SlotState.reserved)
-        .length;
+    final occupied =
+        snapshot.slots.where((slot) => slot.state == SlotState.occupied).length;
+    final reserved =
+        snapshot.slots.where((slot) => slot.state == SlotState.reserved).length;
 
     return Card(
       child: Padding(
@@ -684,12 +689,14 @@ class _SlotGrid extends StatelessWidget {
       builder: (context, constraints) {
         final columns = constraints.maxWidth >= 680 ? 3 : 2;
         const spacing = 10.0;
-        final width = (constraints.maxWidth - spacing * (columns - 1)) / columns;
+        final width =
+            (constraints.maxWidth - spacing * (columns - 1)) / columns;
         return Wrap(
           spacing: spacing,
           runSpacing: spacing,
           children: slots
-              .map((slot) => SizedBox(width: width, child: _SlotCard(slot: slot)))
+              .map((slot) =>
+                  SizedBox(width: width, child: _SlotCard(slot: slot)))
               .toList(growable: false),
         );
       },
@@ -735,7 +742,8 @@ class _SlotCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w700)),
+            Text(label,
+                style: TextStyle(color: color, fontWeight: FontWeight.w700)),
           ],
         ),
       ),
@@ -783,7 +791,8 @@ class _RobotAndJob extends StatelessWidget {
       JobState.movingToVehicle ||
       JobState.movingToSlot ||
       JobState.retrieving ||
-      JobState.returning => true,
+      JobState.returning =>
+        true,
       _ => false,
     };
   }
@@ -796,9 +805,9 @@ class _RobotAndJob extends StatelessWidget {
       JobState.vehicleDetected ||
       JobState.movingToVehicle ||
       JobState.lifting ||
-      JobState.movingToSlot => '입차 작업을 진행하고 있습니다.',
-      JobState.parked || JobState.returning =>
-        '작업을 마치고 대기 위치로 복귀 중입니다.',
+      JobState.movingToSlot =>
+        '입차 작업을 진행하고 있습니다.',
+      JobState.parked || JobState.returning => '작업을 마치고 대기 위치로 복귀 중입니다.',
       JobState.retrieving => '출차 작업을 진행하고 있습니다.',
       JobState.failed || JobState.emergencyStop => '안전 확인이 필요합니다.',
       JobState.unknown => '로봇 상태를 확인하고 있습니다.',
@@ -812,14 +821,15 @@ class _RobotAndJob extends StatelessWidget {
       'TRACING' ||
       'MOVING' ||
       'MOVING_TO_SLOT' ||
-      'CARRYING_TO_SLOT' => '주차장 통로 이동 중',
+      'CARRYING_TO_SLOT' =>
+        '주차장 통로 이동 중',
       'APPROACHING' ||
       'MOVING_TO_VEHICLE' ||
-      'MOVING_TO_PARKED_VEHICLE' => '차량으로 이동 중',
+      'MOVING_TO_PARKED_VEHICLE' =>
+        '차량으로 이동 중',
       'GRIPPING' || 'LIFTING' || 'ACQUIRING_VEHICLE' => '차량 준비 중',
       'CARRYING_TO_EXIT' => '출구로 이동 중',
-      'REVERSING' || 'RETURNING' || 'RETURNING_TO_STANDBY' =>
-        '대기 위치 복귀 중',
+      'REVERSING' || 'RETURNING' || 'RETURNING_TO_STANDBY' => '대기 위치 복귀 중',
       'OFFLINE' => '로봇 연결 확인 필요',
       'FAULT' => '로봇 안전 확인 필요',
       _ => rawState,

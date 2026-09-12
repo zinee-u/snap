@@ -1,0 +1,8 @@
+# Keep the supplied artwork intact; only export platform-specific icon sizes.
+# Run from mobile/: dart run tool/generate_app_icons.dart
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/app_icons/snap-app-dark.png
+  remove_alpha_ios: true
+  background_color_ios: "#000000"

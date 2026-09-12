@@ -1,37 +1,50 @@
 import 'package:flutter/material.dart';
 
-import '../features/parking_lot/parking_dashboard.dart';
+import '../features/parking_lot/parking_application.dart';
 import 'app_config.dart';
+import 'snap_theme.dart';
 
-class SnapApp extends StatelessWidget {
-  const SnapApp({required this.config, super.key});
+class SnapApp extends StatefulWidget {
+  const SnapApp({
+    required this.config,
+    this.initialThemeMode = ThemeMode.system,
+    super.key,
+  });
 
   final AppConfig config;
+  final ThemeMode initialThemeMode;
+
+  @override
+  State<SnapApp> createState() => _SnapAppState();
+}
+
+class _SnapAppState extends State<SnapApp> {
+  late ThemeMode _themeMode;
+
+  @override
+  void initState() {
+    super.initState();
+    _themeMode = widget.initialThemeMode;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF155E63),
-      brightness: Brightness.light,
-    );
-
     return MaterialApp(
       title: 'S.N.A.P',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: colorScheme,
-        useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFFF4F7F6),
-        inputDecorationTheme: const InputDecorationTheme(
-          border: OutlineInputBorder(),
-          filled: true,
-          fillColor: Colors.white,
-        ),
-      ),
-      home: ParkingDashboard(
-        gatewayBaseUri: config.gatewayBaseUri,
-        lotId: config.lotId,
-        customerId: config.customerId,
+      theme: SnapTheme.light(),
+      darkTheme: SnapTheme.dark(),
+      themeMode: _themeMode,
+      home: ParkingApplication(
+        gatewayBaseUri: widget.config.gatewayBaseUri,
+        lotId: widget.config.lotId,
+        customerId: widget.config.customerId,
+        themeMode: _themeMode,
+        onThemeModeChanged: (mode) {
+          if (mode != _themeMode) {
+            setState(() => _themeMode = mode);
+          }
+        },
       ),
     );
   }

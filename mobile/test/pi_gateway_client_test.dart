@@ -6,6 +6,24 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:snap_mobile/core/networking/pi_gateway_client.dart';
 
 void main() {
+  test('rejects a Gateway base URI with a query or fragment', () {
+    for (final uri in <Uri>[
+      Uri.parse('http://127.0.0.1:8101?token=secret'),
+      Uri.parse('http://127.0.0.1:8101#status'),
+    ]) {
+      expect(
+        () => PiGatewayClient(baseUri: uri),
+        throwsA(
+          isA<ArgumentError>().having(
+            (error) => error.message,
+            'message',
+            contains('query 또는 fragment'),
+          ),
+        ),
+      );
+    }
+  });
+
   late HttpServer server;
   late PiGatewayClient client;
   late StreamSubscription<HttpRequest> requests;

@@ -120,6 +120,7 @@ class CustomerVehicle {
     required this.state,
     this.slotId,
     this.expectedMinutes,
+    this.updatedAt,
   });
 
   factory CustomerVehicle.fromPayload(Object? payload) {
@@ -156,6 +157,9 @@ class CustomerVehicle {
       expectedMinutes: _nullableInt(
         json['expectedMinutes'] ?? json['expected_minutes'],
       ),
+      updatedAt: DateTime.tryParse(
+        (json['updatedAt'] ?? json['updated_at'] ?? '').toString(),
+      )?.toUtc(),
     );
   }
 
@@ -164,6 +168,7 @@ class CustomerVehicle {
   final VehicleState state;
   final String? slotId;
   final int? expectedMinutes;
+  final DateTime? updatedAt;
 
   String get vehicleId => id;
 
@@ -173,6 +178,8 @@ class CustomerVehicle {
         'state': state.wireName,
         if (slotId != null) 'slotId': slotId,
         if (expectedMinutes != null) 'expectedMinutes': expectedMinutes,
+        if (updatedAt != null)
+          'updatedAt': updatedAt!.toUtc().toIso8601String(),
       };
 }
 
@@ -541,7 +548,7 @@ String _requiredString(Object? value, String field) {
 
 void _requiredPercentage(Object? value, String field) {
   final parsed = value is num ? value : num.tryParse(value?.toString() ?? '');
-  if (parsed == null || parsed < 0 || parsed > 100) {
+  if (parsed == null || !parsed.isFinite || parsed < 0 || parsed > 100) {
     throw FormatException('Snapshot $field 값은 0~100 숫자여야 합니다.');
   }
 }
@@ -555,13 +562,18 @@ String? _nullableString(Object? value) {
 
 int _boundedInt(Object? value, int fallback, int minimum, int maximum) {
   final parsed = value is num
-      ? value.round()
+      ? value.isFinite
+          ? value.round()
+          : null
       : int.tryParse(value?.toString() ?? '');
   return (parsed ?? fallback).clamp(minimum, maximum).toInt();
 }
 
 int? _nullableInt(Object? value) {
-  return value is num ? value.round() : int.tryParse(value?.toString() ?? '');
+  if (value is num) {
+    return value.isFinite ? value.round() : null;
+  }
+  return int.tryParse(value?.toString() ?? '');
 }
 
 DateTime _dateTime(Object? value, DateTime? fallback) {
