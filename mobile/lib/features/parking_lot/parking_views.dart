@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import '../../app/snap_theme.dart';
 import '../../core/contracts/parking_models.dart';
 import '../../core/networking/pi_gateway_session.dart';
+import 'parking_map_layout.dart';
 
 enum ParkingTab { home, vehicles, activity, settings }
 
@@ -1218,8 +1219,12 @@ class ParkingLotDiagram extends StatelessWidget {
       }
       return ParkingSlot(id: id, state: SlotState.unknown);
     });
-    final left = <ParkingSlot>[normalized[0], normalized[2], normalized[4]];
-    final right = <ParkingSlot>[normalized[1], normalized[3], normalized[5]];
+    final left = <ParkingSlot>[
+      for (final row in ParkingMapLayout.rows) normalized[row[0] - 1],
+    ];
+    final right = <ParkingSlot>[
+      for (final row in ParkingMapLayout.rows) normalized[row[1] - 1],
+    ];
     final position = robotProgress.clamp(0, 100).toInt();
     final progress = position / 100;
     final dark = Theme.of(context).brightness == Brightness.dark;
@@ -1506,19 +1511,13 @@ class _LotRoutePainter extends CustomPainter {
       canvas.drawCircle(Offset(size.width / 2, y), 1.5, lanePaint);
     }
 
-    final target = int.tryParse(targetSlot ?? '');
-    if (target == null || target < 1 || target > 6) {
+    final end = ParkingMapLayout.slotCenter(targetSlot, size);
+    if (end == null) {
       return;
     }
-    final row = (target - 1) ~/ 2;
-    final right = target.isEven;
     final start = Offset(
       size.width / 2,
       size.height * (0.15 + robotProgress.clamp(0, 100) / 100 * 0.7),
-    );
-    final end = Offset(
-      size.width * (right ? 0.72 : 0.28),
-      size.height * ((row + 0.5) / 3),
     );
     final corner = Offset(start.dx, end.dy);
     final path = Path()

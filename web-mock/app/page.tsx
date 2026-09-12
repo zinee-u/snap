@@ -12,8 +12,8 @@ import {
   postParkingRequest,
   postRetrievalRequest,
   resolveWebSocketUrl,
-  SlotId,
 } from './pi-client';
+import { robotMapPoint, routePath, SLOT_COORDINATES } from './parking-map';
 
 type DemoMode = 'simulator' | 'live';
 type ConnectionState = 'simulator' | 'connecting' | 'live' | 'disconnected';
@@ -30,15 +30,6 @@ const DEFAULT_API_BASE = process.env.NEXT_PUBLIC_PI_API_BASE_URL ?? '';
 const DEFAULT_WS_URL = process.env.NEXT_PUBLIC_PI_WS_URL ?? '';
 const DEFAULT_GATEWAY_PORT = process.env.NEXT_PUBLIC_PI_GATEWAY_PORT ?? '8101';
 const DURATION_OPTIONS = [60, 120, 180, 240] as const;
-
-const SLOT_COORDINATES: Record<SlotId, { x: number; y: number }> = {
-  '1': { x: 27, y: 72 },
-  '2': { x: 27, y: 47 },
-  '3': { x: 27, y: 22 },
-  '4': { x: 73, y: 72 },
-  '5': { x: 73, y: 47 },
-  '6': { x: 73, y: 22 },
-};
 
 function browserGatewayDefaults() {
   const hostname = window.location.hostname.includes(':')
@@ -109,42 +100,6 @@ function currentOperationStep(state: string, positionNode: string) {
   if (state.includes('SLOT') || state.includes('CARRY')) return 2;
   if (state.includes('VEHICLE') || state.includes('DETECT')) return 1;
   return 0;
-}
-
-function routePath(state: string, target?: SlotId, kind?: string, robotState?: string) {
-  const targetPoint = target ? SLOT_COORDINATES[target] : undefined;
-  if (!targetPoint) return 'M 50 88 L 50 80';
-  const isRetrieval = kind === 'RETRIEVAL'
-    || state.includes('RETRIEV')
-    || state === 'RETURNING'
-    || String(robotState).includes('PARKED_VEHICLE')
-    || String(robotState).includes('CARRYING_TO_EXIT');
-  if (isRetrieval) {
-    return `M ${targetPoint.x} ${targetPoint.y} L 50 ${targetPoint.y} L 50 88 L 76 94`;
-  }
-  return `M 24 94 L 50 88 L 50 ${targetPoint.y} L ${targetPoint.x} ${targetPoint.y}`;
-}
-
-function robotMapPoint(positionNode: string, state: string, target?: SlotId) {
-  const targetPoint = target ? SLOT_COORDINATES[target] : undefined;
-  const node = positionNode.toUpperCase();
-  if (node === 'STANDBY') return { x: 50, y: 88 };
-  if (node === 'ENTRY') return { x: 24, y: 94 };
-  if (node === 'EXIT') return { x: 76, y: 94 };
-  if ((node === 'SLOT' || node === 'SLOT_APPROACH') && targetPoint) {
-    return node === 'SLOT'
-      ? targetPoint
-      : { x: targetPoint.x < 50 ? 40 : 60, y: targetPoint.y };
-  }
-  if (node === 'AISLE') return { x: 50, y: targetPoint?.y ?? 58 };
-  if (state === 'IDLE' || state.includes('STANDBY')) return { x: 50, y: 88 };
-  if (state === 'REQUESTED' || state.includes('VEHICLE')) return { x: 30, y: 88 };
-  if (state.includes('RETRIEV') && targetPoint) return targetPoint;
-  if ((state.includes('SLOT') || state.includes('CARRY') || state === 'PARKED') && targetPoint) {
-    return { x: 50, y: targetPoint.y };
-  }
-  if (state === 'RETURNING') return { x: 64, y: 88 };
-  return { x: 50, y: 88 };
 }
 
 function formatEventTime(date: Date) {
@@ -752,7 +707,7 @@ export default function Home() {
             <strong>{isBusy ? jobLabel(activeState) : '다음 요청 대기'}</strong>
           </div>
 
-          <div className="parking-terminal" aria-label="중앙 통로를 사이에 둔 1번부터 6번까지 주차 배치도">
+          <div className="parking-terminal" aria-label="중앙 통로 양쪽에 위에서부터 6·5번, 4·3번, 2·1번으로 배치된 주차장">
             <div className="terminal-grid" aria-hidden="true" />
             <div className="terminal-aisle" aria-hidden="true" />
             <div className="terminal-standby"><span>STANDBY</span></div>

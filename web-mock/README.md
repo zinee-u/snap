@@ -44,9 +44,12 @@ QEMU 환경의 LAN 공개·CORS·IP 변경 대응은 [QEMU 가상 보드 가이�
 ## 검증
 
 ```bash
+npm test
 npm run lint
 npm run build
 ```
+
+주차장 지도는 위에서부터 `6 5 / 4 3 / 2 1` 순서다. `npm test`는 이 배치와 각 주차면의 입·출차 경로, 로봇 위치가 같은 번호를 가리키는지 확인한다.
 
 Pi Gateway를 먼저 실행한 뒤 아래 명령으로 REST와 WebSocket 계약을 한 번에 확인할 수 있다.
 
